@@ -75,4 +75,6 @@ export interface AppState {
   gpsAccuracy: number | null;
   customMediaName: string | null;
   customMediaUrl: string | null;
+  audienceExitRemainingSeconds: number | null;
+  isVenueEmpty: boolean;
 }

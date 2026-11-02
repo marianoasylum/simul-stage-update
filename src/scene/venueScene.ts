@@ -70,6 +70,7 @@ export class VenueScene {
   public audienceCount = 240;
   private audienceOriginalPos: THREE.Vector3[] = [];
   private audienceVelocities: THREE.Vector3[] = [];
+  public isVenueEmpty = false;
 
   // User Target Seat & Gates
   public targetSeatCoords: SeatCoordinates = {
@@ -1324,6 +1325,33 @@ export class VenueScene {
     floorSlab.receiveShadow = true;
     standsGroup.add(floorSlab);
 
+    // 2b. Entrance Concourse / Foyer Floor Slab (Z = -4.73 to Z = -22.0, X = -28.4 to +28.4)
+    // Applies the exact same grey concrete floor established inside the arena/stage (0x181a24)
+    const entranceFloorSlab = new THREE.Mesh(
+      new THREE.BoxGeometry(57.0, 0.2, 17.3),
+      new THREE.MeshStandardMaterial({
+        color: 0x181a24,
+        roughness: 0.32,
+        metalness: 0.22,
+      })
+    );
+    entranceFloorSlab.position.set(0, 0.1, -13.365);
+    entranceFloorSlab.receiveShadow = true;
+    standsGroup.add(entranceFloorSlab);
+
+    // Entrance Portal Transition Sill / Threshold (Z = -4.73, X = -28.4 to +28.4)
+    const entranceThreshold = new THREE.Mesh(
+      new THREE.BoxGeometry(57.0, 0.2, 0.6),
+      new THREE.MeshStandardMaterial({
+        color: 0x181a24,
+        roughness: 0.32,
+        metalness: 0.22,
+      })
+    );
+    entranceThreshold.position.set(0, 0.1, -4.73);
+    entranceThreshold.receiveShadow = true;
+    standsGroup.add(entranceThreshold);
+
     // FOH / Soundboard Mixing Console Tower at Z = -38
     const fohPlatform = new THREE.Mesh(
       new THREE.BoxGeometry(6.5, 0.45, 4.0),
@@ -1948,35 +1976,73 @@ export class VenueScene {
     isBlackout: boolean,
     isExiting: boolean
   ): void {
-    // 1. Audio-reactive Jumbotron Visualizer (when not displaying custom media)
-    if (!this.isCustomMediaActive) {
+    // 1. Audio-reactive Jumbotron Visualizer (when not displaying custom media and lights are on)
+    if (!this.isCustomMediaActive && !isBlackout) {
       this.jumbotronController.update(audioBass, audioVol, audioTreble);
     }
 
-    // 2. Animate Seat Beacon and Gate Marker
-    if (this.seatBeacon && this.seatBeacon.visible && this.seatBeacon.children[2]) {
-      this.seatBeacon.children[2].rotation.y += delta * 1.8;
-      this.seatBeacon.children[2].position.y = 2.4 + Math.sin(time * 3.0) * 0.15;
+    // 2. Animate Seat Beacon and Gate Marker (Completely vanish during blackout)
+    if (this.seatBeacon && this.seatBeacon.children[2]) {
+      this.seatBeacon.visible = !isBlackout && this.isSeatBeaconVisibleState;
+      if (this.seatBeacon.visible) {
+        this.seatBeacon.children[2].rotation.y += delta * 1.8;
+        this.seatBeacon.children[2].position.y = 2.4 + Math.sin(time * 3.0) * 0.15;
+      }
     }
     if (this.userGateMarker) {
-      this.userGateMarker.rotation.z += delta * 2.0;
-      this.userGateMarker.position.y = 5.2 + Math.sin(time * 4.0) * 0.2;
+      this.userGateMarker.visible = !isBlackout && !isConcertPlaying && !isExiting;
+      if (this.userGateMarker.visible) {
+        this.userGateMarker.rotation.z += delta * 2.0;
+        this.userGateMarker.position.y = 5.2 + Math.sin(time * 4.0) * 0.2;
+      }
     }
 
-    // Starry Sky Twinkling & Subtle Drift
+    // Starry Sky & Celestial Lighting - Entirely disappears during blackout!
     if (this.starsMesh) {
-      const starMat = this.starsMesh.material as THREE.PointsMaterial;
-      starMat.size = 1.8 + Math.sin(time * 3.2) * 0.35;
-      this.starsMesh.rotation.y = time * 0.0012;
+      this.starsMesh.visible = !isBlackout;
+      if (!isBlackout) {
+        const starMat = this.starsMesh.material as THREE.PointsMaterial;
+        starMat.size = 1.8 + Math.sin(time * 3.2) * 0.35;
+        this.starsMesh.rotation.y = time * 0.0012;
+      }
     }
+    if (this.moonMesh) {
+      this.moonMesh.visible = !isBlackout;
+    }
+
+    // Pitch Black Sky & Atmosphere during blackout
+    if (isBlackout) {
+      this.scene.background = new THREE.Color(0x000000);
+      this.scene.fog = new THREE.FogExp2(0x000000, 0.025);
+    } else {
+      this.scene.background = new THREE.Color(0x060912);
+      this.scene.fog = new THREE.FogExp2(0x060912, 0.012);
+    }
+
+    // Key & Ambient Lighting - Pitch dark on blackout
+    this.outdoorKeyLight.intensity = isBlackout ? 0.0 : 1.4;
+    this.arenaAmbientLight.intensity = isBlackout ? 0.0 : (isConcertPlaying ? 0.25 : 0.7);
+
+    // Stage LED Screens - Vanish completely during blackout
+    if (this.mainLedScreenMesh) this.mainLedScreenMesh.visible = !isBlackout;
+    if (this.jumbotronMeshLeft) this.jumbotronMeshLeft.visible = !isBlackout;
+    if (this.jumbotronMeshRight) this.jumbotronMeshRight.visible = !isBlackout;
+
+    // Stage Wash Lights & Foyer Lights
+    this.stageWashLights.forEach((wash) => {
+      wash.intensity = isBlackout ? 0.0 : (isConcertPlaying ? 2.2 + audioBass * 1.5 : 0.4);
+    });
+    this.foyerLights.forEach((fl) => {
+      fl.intensity = isBlackout ? 0.0 : 1.8;
+    });
 
     // 3. Architectural Internal Lighting Dynamics
     this.houseLights.forEach((hl) => {
       if (isBlackout) {
-        // Floor emergency guide mode during blackout
-        hl.intensity = 0.18;
+        // Complete blackout of stage and venue lights
+        hl.intensity = 0.0;
       } else if (isConcertPlaying) {
-        // Gentle show atmosphere (dimmed to 35% so stage show stands out)
+        // Gentle show atmosphere
         hl.intensity = 0.75 + audioBass * 0.35;
       } else {
         // Full house lights before and after show
@@ -1984,24 +2050,24 @@ export class VenueScene {
       }
     });
 
-    // Tiered Seating Raking Lights & Step LED Glow (Highlights staircase tiers & row separation)
+    // Tiered Seating Raking Lights & Step LED Glow
     this.tieredRakingLights.forEach((spot) => {
       if (isBlackout) {
-        spot.intensity = 0.3; // Low emergency raking
+        spot.intensity = 0.0;
       } else if (isConcertPlaying) {
-        spot.intensity = 0.9 + audioBass * 0.5; // Controlled grazing light emphasizing row contours
+        spot.intensity = 0.9 + audioBass * 0.5;
       } else {
-        spot.intensity = 3.8; // Crisp 45° raking light showcasing step treads & risers
+        spot.intensity = 3.8;
       }
     });
 
     this.stepLedMaterials.forEach((mat) => {
       if (isBlackout) {
-        mat.emissiveIntensity = 2.8; // High visibility safety strip
+        mat.emissiveIntensity = 0.0;
       } else if (isConcertPlaying) {
-        mat.emissiveIntensity = 1.6 + audioTreble * 0.8; // Pulsing with rhythm
+        mat.emissiveIntensity = 1.6 + audioTreble * 0.8;
       } else {
-        mat.emissiveIntensity = 2.0; // Clear neon horizontal delineation
+        mat.emissiveIntensity = 2.0;
       }
     });
 
@@ -2065,6 +2131,12 @@ export class VenueScene {
     isBlackout: boolean,
     isExiting: boolean
   ): void {
+    if (this.isVenueEmpty) {
+      this.audienceMesh.visible = false;
+      return;
+    }
+    this.audienceMesh.visible = true;
+
     const count = this.audienceMesh.count;
     const exitTargetLeft = new THREE.Vector3(-14, 0.2, -4.73);
     const exitTargetRight = new THREE.Vector3(14, 0.2, -4.73);
@@ -2078,10 +2150,23 @@ export class VenueScene {
         this.audienceMesh.getMatrixAt(i, this.dummy.matrix);
         this.dummy.matrix.decompose(this.dummy.position, this.dummy.quaternion, this.dummy.scale);
 
-        const dir = new THREE.Vector3().subVectors(exitTarget, this.dummy.position).normalize();
-        this.dummy.position.addScaledVector(dir, delta * (1.2 + (i % 5) * 0.15));
+        const dir = new THREE.Vector3().subVectors(exitTarget, this.dummy.position);
+        const dist = dir.length();
+        dir.normalize();
+
+        // Audience walks towards the exit gates
+        this.dummy.position.addScaledVector(dir, delta * (1.8 + (i % 5) * 0.25));
         this.dummy.position.y = 0.2 + Math.abs(Math.sin(time * 6 + i)) * 0.08;
         this.dummy.lookAt(exitTarget.x, this.dummy.position.y, exitTarget.z);
+
+        // Gradually shrink as they reach the exit portal (Z >= -6.0 or dist <= 2.5m)
+        if (dist <= 2.5 || this.dummy.position.z >= -5.2) {
+          this.dummy.scale.set(0.001, 0.001, 0.001);
+        } else {
+          const exitScale = Math.min(1.0, Math.max(0.001, dist / 8.0));
+          this.dummy.scale.set(exitScale, exitScale, exitScale);
+        }
+
         this.dummy.updateMatrix();
         this.audienceMesh.setMatrixAt(i, this.dummy.matrix);
       } else if (isConcertPlaying && !isBlackout) {
@@ -2116,9 +2201,19 @@ export class VenueScene {
   }
 
   // --- Seat Beacon Visibility (Disappears once user sits down) ---
+  private isSeatBeaconVisibleState = true;
   public setSeatBeaconVisible(visible: boolean): void {
+    this.isSeatBeaconVisibleState = visible;
     if (this.seatBeacon) {
       this.seatBeacon.visible = visible;
+    }
+  }
+
+  // --- Empty Venue Exploration Mode ---
+  public setVenueEmpty(empty: boolean): void {
+    this.isVenueEmpty = empty;
+    if (this.audienceMesh) {
+      this.audienceMesh.visible = !empty;
     }
   }
 

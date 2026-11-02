@@ -163,6 +163,22 @@ export const HUDOverlay: React.FC<Props> = ({
               <span>EN VIVO</span>
             </div>
           )}
+
+          {/* Audience Exit Countdown */}
+          {appState.phase === 'EXITING_VENUE' && appState.audienceExitRemainingSeconds !== null && appState.audienceExitRemainingSeconds > 0 && (
+            <div className="flex items-center gap-1.5 px-3.5 py-1.5 rounded-full bg-indigo-500/25 border border-indigo-400/60 text-indigo-200 text-xs font-mono font-bold backdrop-blur-md shadow-md animate-pulse">
+              <Timer className="w-3.5 h-3.5 text-indigo-300" />
+              <span>Desalojo: {appState.audienceExitRemainingSeconds}s</span>
+            </div>
+          )}
+
+          {/* Empty Venue Free Exploration Badge */}
+          {appState.phase === 'EXITING_VENUE' && appState.isVenueEmpty && (
+            <div className="flex items-center gap-1.5 px-3.5 py-1.5 rounded-full bg-emerald-500/25 border border-emerald-400/80 text-emerald-200 text-xs font-bold backdrop-blur-md shadow-md">
+              <Footprints className="w-3.5 h-3.5 text-emerald-300 animate-pulse" />
+              <span>Escenario Libre</span>
+            </div>
+          )}
         </div>
       </div>
 
@@ -256,16 +272,51 @@ export const HUDOverlay: React.FC<Props> = ({
           </div>
         )}
 
-        {/* Audience Leaving / Exit Guidance */}
-        {appState.phase === 'EXITING_VENUE' && (
-          <div className="w-full p-2 sm:p-2.5 rounded-xl bg-emerald-950/90 border border-emerald-400/80 text-emerald-200 shadow-lg backdrop-blur-md flex items-center justify-between gap-2">
+        {/* Audience Evacuating Notification (30s) */}
+        {appState.phase === 'EXITING_VENUE' && !appState.isVenueEmpty && (
+          <div className="w-full p-2 sm:p-2.5 rounded-xl bg-indigo-950/90 border border-indigo-400/80 text-indigo-200 shadow-lg backdrop-blur-md flex items-center justify-between gap-2">
             <div className="flex items-center gap-1.5 min-w-0">
-              <div className="p-1 rounded-md bg-emerald-500/20 text-emerald-300 shrink-0">
+              <div className="p-1 rounded-md bg-indigo-500/20 text-indigo-300 shrink-0">
                 <DoorOpen className="w-3.5 h-3.5" />
               </div>
               <div className="min-w-0">
                 <h4 className="font-bold text-[11px] text-white">Evento Finalizado</h4>
-                <p className="text-[9px] text-emerald-200/90 truncate">Salida por puertas verdes</p>
+                <p className="text-[9px] text-indigo-200/90 truncate">
+                  {appState.audienceExitRemainingSeconds !== null && appState.audienceExitRemainingSeconds > 0
+                    ? `Público saliendo: ${appState.audienceExitRemainingSeconds}s`
+                    : 'Salida por puertas verdes'}
+                </p>
+              </div>
+            </div>
+            {appState.isSeated && (
+              <button
+                type="button"
+                onClick={onStandUp}
+                className="py-1 px-2.5 rounded-lg bg-indigo-400 hover:bg-indigo-300 text-slate-950 font-bold text-[11px] shadow shrink-0 cursor-pointer"
+              >
+                Levantarse
+              </button>
+            )}
+          </div>
+        )}
+
+        {/* Empty Venue Notification: User is the last person, permitted to run freely! */}
+        {appState.phase === 'EXITING_VENUE' && appState.isVenueEmpty && (
+          <div className="w-full p-2.5 rounded-xl bg-gradient-to-r from-emerald-950/95 to-teal-950/95 border-2 border-emerald-400 text-emerald-100 shadow-xl backdrop-blur-md flex items-center justify-between gap-2 animate-pulse">
+            <div className="flex items-center gap-2 min-w-0">
+              <div className="p-1.5 rounded-lg bg-emerald-500/25 text-emerald-300 shrink-0">
+                <Footprints className="w-4 h-4 text-emerald-300" />
+              </div>
+              <div className="min-w-0">
+                <h4 className="font-extrabold text-[11px] text-white flex items-center gap-1">
+                  <span>¡Recinto Vacío!</span>
+                  <span className="text-[9px] font-semibold px-1 py-0.2 rounded bg-emerald-400/30 text-emerald-200">
+                    Último Asistente
+                  </span>
+                </h4>
+                <p className="text-[9px] text-emerald-200/95 truncate">
+                  ¡Puedes correr para explorar el escenario!
+                </p>
               </div>
             </div>
             {appState.isSeated && (
@@ -365,19 +416,29 @@ export const HUDOverlay: React.FC<Props> = ({
                 onClick={onToggleSprint}
                 className={`px-3 py-2 rounded-xl text-xs font-bold flex items-center gap-1.5 cursor-pointer transition-all ${
                   appState.sprintEnabled
-                    ? appState.isInsideVenue
+                    ? appState.isVenueEmpty
+                      ? 'bg-emerald-500/25 border border-emerald-400 text-emerald-300 shadow-md shadow-emerald-500/20'
+                      : appState.isInsideVenue
                       ? 'bg-rose-500/20 border border-rose-500/40 text-rose-300'
                       : 'bg-amber-500/20 border border-amber-500/40 text-amber-300'
                     : 'bg-slate-800 border border-slate-700 text-slate-300 hover:bg-slate-700'
                 }`}
                 title={
-                  appState.isInsideVenue
-                    ? '¡Cuidado! Prohibido correr en el recinto'
+                  appState.isVenueEmpty
+                    ? '¡Recinto vacío! Puedes correr a toda velocidad para explorar el escenario'
+                    : appState.isInsideVenue
+                    ? '¡Cuidado! Prohibido correr en el recinto con público'
                     : 'Alternar Caminar / Correr'
                 }
               >
                 <Footprints className="w-4 h-4" />
-                <span>{appState.sprintEnabled ? 'Corriendo' : 'Caminando'}</span>
+                <span>
+                  {appState.sprintEnabled
+                    ? appState.isVenueEmpty
+                      ? 'Corriendo (Libre)'
+                      : 'Corriendo'
+                    : 'Caminando'}
+                </span>
               </button>
 
               {/* Sit / Stand button */}

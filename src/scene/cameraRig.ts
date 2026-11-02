@@ -31,6 +31,7 @@ export class CameraRig {
   public isNearSeat = false;
   public isNearExit = false;
   public currentSpeed = 0; // m/s
+  public allowSprintInVenue = false; // When arena is empty, user can sprint freely inside!
 
   // Speed constants
   private readonly WALK_SPEED = 4.2;
@@ -119,8 +120,8 @@ export class CameraRig {
       targetSpeed = input.sprint ? this.SPRINT_SPEED : this.WALK_SPEED;
     }
 
-    // SPEED LIMIT CHECK: If inside venue and running!
-    if (this.isInsideVenue && input.sprint && targetSpeed > this.SPEED_LIMIT) {
+    // SPEED LIMIT CHECK: If inside venue and running! (Allowed once venue is empty and user is last)
+    if (this.isInsideVenue && input.sprint && targetSpeed > this.SPEED_LIMIT && !this.allowSprintInVenue) {
       soundEngine.playAlarm();
       if (navigator.vibrate) navigator.vibrate([100, 50, 100, 50, 200]);
       this.onSpeedLimitExceeded();

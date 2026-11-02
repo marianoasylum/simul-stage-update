@@ -63,6 +63,8 @@ export default function App() {
     gpsAccuracy: null,
     customMediaName: null,
     customMediaUrl: null,
+    audienceExitRemainingSeconds: null,
+    isVenueEmpty: false,
   });
 
   const [isNearSeat, setIsNearSeat] = useState(false);
@@ -408,7 +410,8 @@ export default function App() {
           }
 
           if (newBlackoutSeconds <= 1) {
-            // Blackout ends -> CONCERT_FINALE! Lights turn back on!
+            // Blackout ends -> CONCERT_FINALE! Lights turn back on & music restarts!
+            soundEngine.startConcertMusic();
             newPhase = 'CONCERT_FINALE';
             newBlackoutSeconds = null;
 
@@ -423,12 +426,31 @@ export default function App() {
           }
         }
 
+        // Countdown for audience exit (30-second duration)
+        let newAudienceExitSeconds = prev.audienceExitRemainingSeconds;
+        let newIsVenueEmpty = prev.isVenueEmpty;
+
+        if (prev.phase === 'EXITING_VENUE' && newAudienceExitSeconds !== null && newAudienceExitSeconds > 0) {
+          if (newAudienceExitSeconds <= 1) {
+            newAudienceExitSeconds = 0;
+            newIsVenueEmpty = true;
+            venueSceneRef.current?.setVenueEmpty(true);
+            if (cameraRigRef.current) {
+              cameraRigRef.current.allowSprintInVenue = true;
+            }
+          } else {
+            newAudienceExitSeconds -= 1;
+          }
+        }
+
         return {
           ...prev,
           phase: newPhase,
           timeRemainingSeconds: newTimeRemaining,
           blackoutRemainingSeconds: newBlackoutSeconds,
           flashlightWarningSeconds: newWarningSeconds,
+          audienceExitRemainingSeconds: newAudienceExitSeconds,
+          isVenueEmpty: newIsVenueEmpty,
         };
       });
     }, 1000);
@@ -443,6 +465,8 @@ export default function App() {
     if (appState.phase === 'CONCERT_PLAYING') {
       // After 28 seconds of initial music, trigger blackout with 16-second countdown!
       timeoutId = window.setTimeout(() => {
+        // Music stops when the lights go out!
+        soundEngine.stopConcertMusic();
         setAppState((prev) => ({
           ...prev,
           phase: 'CONCERT_BLACKOUT',
@@ -450,13 +474,19 @@ export default function App() {
         }));
       }, 28000);
     } else if (appState.phase === 'CONCERT_FINALE') {
-      // Finale lasts 20 seconds, then crowd applause & exit
+      // Finale lasts 20 seconds, then crowd applause & 30s audience exit
       timeoutId = window.setTimeout(() => {
         soundEngine.stopConcertMusic();
         soundEngine.playCrowdApplause();
+        if (cameraRigRef.current) {
+          cameraRigRef.current.allowSprintInVenue = false;
+        }
+        venueSceneRef.current?.setVenueEmpty(false);
         setAppState((prev) => ({
           ...prev,
           phase: 'EXITING_VENUE',
+          audienceExitRemainingSeconds: 30, // 30-second crowd evacuation
+          isVenueEmpty: false,
           flashlightWarningSeconds: null,
           blackoutRemainingSeconds: null,
         }));
@@ -666,6 +696,10 @@ export default function App() {
   const handleResetFromEntrance = useCallback(() => {
     cameraRigRef.current?.resetToEntrance();
     venueSceneRef.current?.setFlashlight(false);
+    venueSceneRef.current?.setVenueEmpty(false);
+    if (cameraRigRef.current) {
+      cameraRigRef.current.allowSprintInVenue = false;
+    }
     setAppState((prev) => ({
       ...prev,
       phase: 'INSIDE_VENUE',
@@ -673,6 +707,8 @@ export default function App() {
       flashlightOn: false,
       flashlightWarningSeconds: null,
       blackoutRemainingSeconds: null,
+      audienceExitRemainingSeconds: null,
+      isVenueEmpty: false,
     }));
   }, []);
 
@@ -680,6 +716,7 @@ export default function App() {
     soundEngine.stopConcertMusic();
     venueSceneRef.current?.setSeatBeaconVisible(true);
     venueSceneRef.current?.setFlashlight(false);
+    venueSceneRef.current?.setVenueEmpty(false);
     if (cameraRigRef.current) {
       cameraRigRef.current.position.set(2.2, 1.65, 42.5);
       cameraRigRef.current.yaw = Math.PI;
@@ -688,6 +725,7 @@ export default function App() {
       cameraRigRef.current.isGrounded = true;
       cameraRigRef.current.isSeated = false;
       cameraRigRef.current.isInsideVenue = false;
+      cameraRigRef.current.allowSprintInVenue = false;
     }
     setAppState((prev) => ({
       ...prev,
@@ -698,6 +736,8 @@ export default function App() {
       flashlightOn: false,
       flashlightWarningSeconds: null,
       blackoutRemainingSeconds: null,
+      audienceExitRemainingSeconds: null,
+      isVenueEmpty: false,
     }));
   }, []);
 
