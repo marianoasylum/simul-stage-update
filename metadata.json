@@ -1,6 +1,6 @@
 {
   "name": "Simulación de Evento Interactivo 3D",
   "description": "Experiencia web inmersiva para eventos con Three.js, sensores móviles (giroscopio, micrófono, cámara), navegación en primera persona y concierto dinámico.",
-  "requestFramePermissions": ["camera", "microphone", "accelerometer", "gyroscope"],
+  "requestFramePermissions": [],
   "majorCapabilities": ["MAJOR_CAPABILITY_SERVER_SIDE_GEMINI_API"]
 }

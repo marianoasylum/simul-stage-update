@@ -25,14 +25,6 @@ export class CameraRig {
   public yaw = Math.PI; // Face arena at start (looking down -Z)
   public pitch = 0;
 
-  // Gyroscope integration
-  public gyroActive = false;
-  private gyroYaw = 0;
-  private gyroPitch = 0;
-  private gyroRoll = 0;
-  private targetGyroYaw = 0;
-  private targetGyroPitch = 0;
-
   // Player state
   public isInsideVenue = false;
   public isSeated = false;
@@ -100,14 +92,12 @@ export class CameraRig {
     if (this.isSeated) {
       // When seated, only allow subtle look orientation
       this.applyLookInput(input.lookDeltaX, input.lookDeltaY);
-      this.applyGyroSmoothing(delta);
       this.applyCameraRotation();
       return;
     }
 
     // 2. Normal Locomotion
     this.applyLookInput(input.lookDeltaX, input.lookDeltaY);
-    this.applyGyroSmoothing(delta);
     this.applyCameraRotation();
 
     // Check outdoor vs indoor status
@@ -177,31 +167,9 @@ export class CameraRig {
     this.pitch = Math.max(-Math.PI / 2.5, Math.min(Math.PI / 2.5, this.pitch - dy));
   }
 
-  public setDeviceOrientation(alpha: number, beta: number, gamma: number): void {
-    this.gyroActive = true;
-    // Normalize and convert degrees to radians
-    // Beta is pitch (tilt front/back, -180 to 180)
-    // Gamma is roll (tilt left/right, -90 to 90)
-    // Alpha is compass yaw (0 to 360)
-    const radBeta = (beta * Math.PI) / 180;
-    const radGamma = (gamma * Math.PI) / 180;
-
-    // Center beta around standard holding angle (~50 degrees)
-    this.targetGyroPitch = (radBeta - 0.9) * 0.7;
-    this.targetGyroYaw = -radGamma * 0.7;
-  }
-
-  private applyGyroSmoothing(delta: number): void {
-    if (!this.gyroActive) return;
-    // Smooth Lerp to avoid camera jerkiness
-    this.gyroPitch = THREE.MathUtils.lerp(this.gyroPitch, this.targetGyroPitch, delta * 6.0);
-    this.gyroYaw = THREE.MathUtils.lerp(this.gyroYaw, this.targetGyroYaw, delta * 6.0);
-  }
-
   private applyCameraRotation(): void {
-    const finalYaw = this.yaw + this.gyroYaw;
-    const finalPitch = Math.max(-Math.PI / 2.3, Math.min(Math.PI / 2.3, this.pitch + this.gyroPitch));
-    this.camera.rotation.set(finalPitch, finalYaw, 0, 'YXZ');
+    const finalPitch = Math.max(-Math.PI / 2.3, Math.min(Math.PI / 2.3, this.pitch));
+    this.camera.rotation.set(finalPitch, this.yaw, 0, 'YXZ');
   }
 
   public getFloorHeight(x: number, z: number): number {
@@ -210,13 +178,27 @@ export class CameraRig {
       return 0.0;
     }
 
-    // Inside Movistar Arena:
-    // 1. Entrance Foyer / Hallway (-4.73 >= z > -12.0)
-    if (z > -12.0) {
-      return 0.2;
+    const absX = Math.abs(x);
+
+    // 1. Entrance Stepped Gradas / Stands (Cabecera rear tiers flanking the entrance corridor)
+    // Left (X: -28.2 to -9.8) and Right (X: +9.8 to +28.2), from Z = -22.0 to Z = -6.0
+    // 6 stepped rows: rise = 0.72m, run = 2.3m along Z
+    if (z <= -6.0 && z >= -22.0 && absX >= 9.8 && absX <= 28.5) {
+      const stepRow = Math.min(5, Math.max(0, Math.floor((z - (-22.0)) / 2.3)));
+      return 0.2 + (stepRow + 1) * 0.72;
     }
 
-    const absX = Math.abs(x);
+    // 1b. Top back landing behind entrance gradas (Z from -6.0 to -4.73, |X| between 9.8 and 28.5)
+    if (z > -6.0 && z <= this.scene.entranceZ && absX >= 9.8 && absX <= 28.5) {
+      return 0.2 + 6 * 0.72; // 4.52m top landing
+    }
+
+    // 1c. Entrance Foyer / Central Hallway corridor (-4.73 >= z > -12.0)
+    if (z > -12.0 || absX < 10.0) {
+      if (z > -22.0) {
+        return 0.2;
+      }
+    }
 
     // 2. Concert Stage Platform and access ramps (z <= -70.0 and central width)
     if (z <= -70.0 && absX <= 18.0) {
@@ -263,7 +245,7 @@ export class CameraRig {
       this.position.y = targetEyeY;
       this.verticalVelocity = 0;
       this.isGrounded = true;
-    } else if (this.isGrounded && (this.position.y - targetEyeY) <= 0.35) {
+    } else if (this.isGrounded && (this.position.y - targetEyeY) <= 0.85) {
       // Step down smoothly along ramps/stairs without false jumping
       this.position.y = targetEyeY;
       this.verticalVelocity = 0;
@@ -278,52 +260,77 @@ export class CameraRig {
    */
   public isPointBlocked(x: number, z: number, r = 0.45): boolean {
     const entranceZ = this.scene.entranceZ; // -4.73
+    const absX = Math.abs(x);
 
-    // 1. Solid Front Facade Left and Right Wings
-    // Front wall is centered at Z = -4.73, thickness ~1.2m (Z from -5.35 to -4.1)
-    // The 16 entrance gates are located from X = -18.65 to X = +18.65
-    // Solid concrete facade wings exist for |X| >= 18.65
+    // 1. Outside Entrance Flank Security Walls (Z = -4.73 to Z = 5.0, at X = +-19.0)
+    // Physical lateral walls containing the entrance queue plaza
+    if (z >= -4.73 - r && z <= 5.0 + r && Math.abs(absX - 19.0) <= 0.35 + r) {
+      return true;
+    }
+
+    // 2. Solid Front Facade Left and Right Wings
+    // Centered at Z = -4.73, thickness ~1.2m (Z from -5.35 to -4.1)
+    // The 16 entrance gates are located between X = -18.65 and X = +18.65
     const isInsideFrontWallBand = z >= -5.35 - r && z <= -4.1 + r;
     if (isInsideFrontWallBand) {
-      if (x <= -18.65 + r || x >= 18.65 - r) {
+      if (absX >= 18.65 - r) {
         return true;
       }
     }
 
-    // 2. Return Side Exterior Walls (spanning from front facade Z = -4.73 back to Z = -22 at |X| = 48)
-    if (z >= -22.0 && z <= -4.1 + r) {
-      if (Math.abs(x) >= 48.0 - r) {
-        return true;
-      }
+    // 3. Inside Entrance Hallway Side Enclosure Walls (Z = -4.73 to Z = -22.0 at X = +-28.4)
+    if (z >= -22.0 - r && z <= -4.73 + r && absX >= 28.0 - r) {
+      return true;
     }
 
-    // 3. Inside Arena Enclosure Boundaries (when inside, Z <= entranceZ)
+    // 4. Inner Glass Balustrades Flanking Central Entrance Corridor (X = +-9.95, Z = -22.0 to -8.2)
+    // Prevents clipping sideways through railings into the entrance gradas
+    if (z >= -22.0 && z <= -8.2 && Math.abs(absX - 9.95) <= 0.18 + r) {
+      return true;
+    }
+
+    // 5. Rear Enclosure behind the top of Entrance Gradas (Z = -6.0 to -4.73)
+    if (z >= -5.8 - r && z <= -4.73 + r && absX >= 9.8 && absX <= 28.5) {
+      return true;
+    }
+
+    // 6. Return Side Exterior Walls (spanning from front facade Z = -4.73 back to Z = -22 at |X| = 48)
+    if (z >= -22.0 && z <= -4.1 + r && absX >= 48.0 - r) {
+      return true;
+    }
+
+    // 7. Inside Arena Enclosure Boundaries (when inside, Z <= entranceZ)
     if (z <= entranceZ) {
-      // Left acoustic side wall at X = -39.0
-      if (x <= -38.6 + r) return true;
-      // Right acoustic side wall at X = +39.0
-      if (x >= 38.6 - r) return true;
+      // Left and right acoustic side walls at X = +-39.0
+      if (absX >= 38.6 - r) return true;
       // Rear stage wall at Z = -86.5
       if (z <= -86.2 + r) return true;
 
       // Soundboard / FOH mixing console tower at X = 0, Z = -38 (width 6.5m, depth 4.0m)
-      if (Math.abs(x) <= 3.25 + r && Math.abs(z - (-38.0)) <= 2.0 + r) {
+      if (absX <= 3.25 + r && Math.abs(z - (-38.0)) <= 2.0 + r) {
         return true;
       }
     }
 
-    // 4. Outdoor Calle Humboldt Boundaries (when outside, Z > entranceZ)
+    // 8. Outdoor Calle Humboldt Boundaries & Parked Vehicle Fleet Collisions
     if (z > entranceZ) {
       // Far sidewalk / street boundary across Humboldt (Z = 30.5)
       if (z >= 30.2 - r) return true;
-      // Calle Humboldt west end (X = -64.0)
-      if (x <= -64.0 + r) return true;
-      // Calle Humboldt east end (X = 64.0)
-      if (x >= 64.0 - r) return true;
+      // Calle Humboldt west and east limits
+      if (absX >= 64.0 - r) return true;
 
-      // Parked car on Calle Humboldt at X = -6.0, Z = 18.0 (width 2.4, length 4.8)
-      if (Math.abs(x - (-6.0)) <= 1.35 + r && Math.abs(z - 18.0) <= 2.5 + r) {
-        return true;
+      // Check all parked vehicles on Calle Humboldt
+      if (this.scene.parkedCarColliders && this.scene.parkedCarColliders.length > 0) {
+        for (const car of this.scene.parkedCarColliders) {
+          if (
+            x >= car.minX - r &&
+            x <= car.maxX + r &&
+            z >= car.minZ - r &&
+            z <= car.maxZ + r
+          ) {
+            return true;
+          }
+        }
       }
     }
 
@@ -332,16 +339,19 @@ export class CameraRig {
 
   private moveWithCollisions(deltaX: number, deltaZ: number): void {
     const r = 0.45; // Collision radius
+    const currentFloor = this.getFloorHeight(this.position.x, this.position.z);
 
-    // Slide along X axis if free
+    // Slide along X axis if free and step height manageable
     const targetX = this.position.x + deltaX;
-    if (!this.isPointBlocked(targetX, this.position.z, r)) {
+    const floorX = this.getFloorHeight(targetX, this.position.z);
+    if (!this.isPointBlocked(targetX, this.position.z, r) && (floorX - currentFloor <= 0.85 || !this.isGrounded)) {
       this.position.x = targetX;
     }
 
-    // Slide along Z axis if free
+    // Slide along Z axis if free and step height manageable
     const targetZ = this.position.z + deltaZ;
-    if (!this.isPointBlocked(this.position.x, targetZ, r)) {
+    const floorZ = this.getFloorHeight(this.position.x, targetZ);
+    if (!this.isPointBlocked(this.position.x, targetZ, r) && (floorZ - currentFloor <= 0.85 || !this.isGrounded)) {
       this.position.z = targetZ;
     }
 
@@ -354,21 +364,31 @@ export class CameraRig {
     const entranceZ = this.scene.entranceZ;
 
     if (this.position.z > entranceZ) {
-      // Outdoor street boundaries
-      this.position.x = Math.max(-64.0 + r, Math.min(64.0 - r, this.position.x));
-      this.position.z = Math.min(30.2 - r, this.position.z);
+      // If in outdoor entrance plaza (Z from -4.73 to 5.0), enforce lateral side walls
+      if (this.position.z < 5.0) {
+        this.position.x = Math.max(-18.65 + r, Math.min(18.65 - r, this.position.x));
+      } else {
+        // Calle Humboldt street boundaries
+        this.position.x = Math.max(-64.0 + r, Math.min(64.0 - r, this.position.x));
+        this.position.z = Math.min(30.2 - r, this.position.z);
+      }
 
-      // Cannot walk into solid front wall from outside
-      if (this.position.x < -18.65 + r || this.position.x > 18.65 - r) {
+      // Cannot walk into solid front wall wings from outside
+      if (Math.abs(this.position.x) > 18.65 - r) {
         this.position.z = Math.max(-4.1 + r, this.position.z);
       }
     } else {
       // Indoor venue boundaries
-      this.position.x = Math.max(-38.6 + r, Math.min(38.6 - r, this.position.x));
+      if (this.position.z > -22.0) {
+        // Enforce hallway side walls
+        this.position.x = Math.max(-28.0 + r, Math.min(28.0 - r, this.position.x));
+      } else {
+        this.position.x = Math.max(-38.6 + r, Math.min(38.6 - r, this.position.x));
+      }
       this.position.z = Math.max(-86.2 + r, this.position.z);
 
-      // Cannot walk into solid front wall from inside
-      if (this.position.x < -18.65 + r || this.position.x > 18.65 - r) {
+      // Cannot walk into solid front wall wings from inside
+      if (Math.abs(this.position.x) > 18.65 - r) {
         this.position.z = Math.min(-5.35 - r, this.position.z);
       }
     }

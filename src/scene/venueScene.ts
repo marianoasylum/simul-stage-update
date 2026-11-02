@@ -80,8 +80,17 @@ export class VenueScene {
   public userGateMarker: THREE.Group;
   public assignedGateNumber = 1;
 
-  // Car reference
+  // Car reference & Parked vehicle colliders
   public carGroup: THREE.Group;
+  public parkedCarColliders: { minX: number; maxX: number; minZ: number; maxZ: number }[] = [];
+
+  // Custom Screen Media (GIF / Video / Image)
+  public customMediaFile: File | null = null;
+  public customMediaUrl: string | null = null;
+  public customTexture: THREE.Texture | null = null;
+  public isCustomMediaActive = false;
+  public customVideoElement: HTMLVideoElement | null = null;
+  private gifAnimationStop: (() => void) | null = null;
 
   // Boundary markers: Entrances are at Z = -4.73
   public entranceZ = -4.73; // Outdoor Z > -4.73, Inside Z <= -4.73
@@ -176,9 +185,8 @@ export class VenueScene {
     this.camera.add(this.flashlightBeam);
     this.scene.add(this.camera);
 
-    // 5. Build Updated Calle Humboldt (Harmonized, seamless, zero clipping)
-    this.carGroup = this.buildProceduralCar();
-    this.carGroup.position.set(-6, 0, 18);
+    // 5. Build Updated Calle Humboldt & Parked Vehicle Fleet
+    this.carGroup = this.buildParkedVehicles();
     this.scene.add(this.carGroup);
 
     this.buildUpdatedCalleHumboldt();
@@ -1151,6 +1159,46 @@ export class VenueScene {
       facadeGroup.add(uplight.target);
     });
 
+    // 13. Exterior Entrance Flank Security Walls (Z = -4.73 to Z = 5.0, at X = -19.0 and X = +19.0)
+    // Prevents walking off the entrance plaza into void and grounds the access perimeter
+    const flankWallGeo = new THREE.BoxGeometry(0.5, 3.6, 9.73);
+    const flankWallMat = new THREE.MeshStandardMaterial({
+      color: 0x1b2330,
+      metalness: 0.85,
+      roughness: 0.3,
+    });
+    const leftFlankWall = new THREE.Mesh(flankWallGeo, flankWallMat);
+    leftFlankWall.position.set(-19.0, 1.8, 0.135);
+    leftFlankWall.castShadow = true;
+    leftFlankWall.receiveShadow = true;
+    facadeGroup.add(leftFlankWall);
+
+    const rightFlankWall = new THREE.Mesh(flankWallGeo, flankWallMat);
+    rightFlankWall.position.set(19.0, 1.8, 0.135);
+    rightFlankWall.castShadow = true;
+    rightFlankWall.receiveShadow = true;
+    facadeGroup.add(rightFlankWall);
+
+    // Glowing Cyan LED accent strips along the exterior flank wall top
+    const flankLedGeo = new THREE.BoxGeometry(0.52, 0.08, 9.73);
+    const leftFlankLed = new THREE.Mesh(flankLedGeo, neonCyanMat);
+    leftFlankLed.position.set(-19.0, 3.62, 0.135);
+    const rightFlankLed = new THREE.Mesh(flankLedGeo, neonCyanMat);
+    rightFlankLed.position.set(19.0, 3.62, 0.135);
+    facadeGroup.add(leftFlankLed, rightFlankLed);
+
+    // 14. Interior Hallway Side Enclosure Walls (Z = -4.73 to Z = -22.0, at X = -28.4 and X = +28.4)
+    const insideFlankGeo = new THREE.BoxGeometry(0.8, 12.0, 17.27);
+    const leftInsideWall = new THREE.Mesh(insideFlankGeo, flankWallMat);
+    leftInsideWall.position.set(-28.4, 6.0, -13.365);
+    leftInsideWall.castShadow = true;
+    leftInsideWall.receiveShadow = true;
+    const rightInsideWall = new THREE.Mesh(insideFlankGeo, flankWallMat);
+    rightInsideWall.position.set(28.4, 6.0, -13.365);
+    rightInsideWall.castShadow = true;
+    rightInsideWall.receiveShadow = true;
+    facadeGroup.add(leftInsideWall, rightInsideWall);
+
     this.scene.add(facadeGroup);
   }
 
@@ -1735,57 +1783,158 @@ export class VenueScene {
     this.userGateMarker.position.set(gateX, 5.2, -4.5);
   }
 
-  // --- Procedural VIP Vehicle ---
-  private buildProceduralCar(): THREE.Group {
+  // --- Procedural Vehicle Generator ---
+  private buildProceduralCar(
+    color = 0x111e33,
+    type: 'sedan' | 'suv' | 'taxi' = 'sedan'
+  ): THREE.Group {
     const car = new THREE.Group();
+    const isSuv = type === 'suv';
+    const isTaxi = type === 'taxi';
 
-    // Chassis
-    const chassisGeo = new THREE.BoxGeometry(2.3, 0.65, 4.6);
+    // Chassis dimensions
+    const length = isSuv ? 4.9 : 4.6;
+    const width = isSuv ? 2.45 : 2.3;
+    const height = isSuv ? 0.78 : 0.65;
+    const bodyColor = isTaxi ? 0xdfa000 : color;
+
+    const chassisGeo = new THREE.BoxGeometry(width, height, length);
     const bodyMat = new THREE.MeshStandardMaterial({
-      color: 0x111e33,
-      metalness: 0.9,
-      roughness: 0.2,
+      color: bodyColor,
+      metalness: 0.88,
+      roughness: 0.22,
     });
     const chassis = new THREE.Mesh(chassisGeo, bodyMat);
-    chassis.position.y = 0.55;
+    chassis.position.y = isSuv ? 0.65 : 0.55;
+    chassis.castShadow = true;
+    chassis.receiveShadow = true;
     car.add(chassis);
 
-    // Cabin Glass
-    const cabinGeo = new THREE.BoxGeometry(1.9, 0.55, 2.4);
+    // Cabin Glass / Roof
+    const cabinH = isSuv ? 0.7 : 0.55;
+    const cabinGeo = new THREE.BoxGeometry(width * 0.84, cabinH, length * 0.54);
     const glassMat = new THREE.MeshStandardMaterial({
-      color: 0x050a14,
+      color: 0x070c14,
       metalness: 0.95,
       roughness: 0.05,
     });
     const cabin = new THREE.Mesh(cabinGeo, glassMat);
-    cabin.position.set(0, 1.1, -0.2);
+    cabin.position.set(0, (isSuv ? 0.65 : 0.55) + height / 2 + cabinH / 2, -0.2);
     car.add(cabin);
+
+    // Taxi Roof Light or SUV Roof Rails
+    if (isTaxi) {
+      const taxiSignMat = new THREE.MeshStandardMaterial({
+        color: 0x111111,
+        emissive: 0xffaa00,
+        emissiveIntensity: 1.5,
+      });
+      const taxiSign = new THREE.Mesh(new THREE.BoxGeometry(0.8, 0.18, 0.25), taxiSignMat);
+      taxiSign.position.set(0, (isSuv ? 0.65 : 0.55) + height / 2 + cabinH + 0.09, -0.2);
+      car.add(taxiSign);
+    } else if (isSuv) {
+      const railMat = new THREE.MeshStandardMaterial({ color: 0x475569, metalness: 0.9 });
+      [-0.8, 0.8].forEach((rx) => {
+        const rail = new THREE.Mesh(new THREE.CylinderGeometry(0.025, 0.025, length * 0.48, 8), railMat);
+        rail.rotateX(Math.PI / 2);
+        rail.position.set(rx, 0.65 + height / 2 + cabinH + 0.04, -0.2);
+        car.add(rail);
+      });
+    }
 
     // Wheels
     const tireMat = new THREE.MeshStandardMaterial({ color: 0x111111, roughness: 0.9 });
+    const wheelR = isSuv ? 0.44 : 0.38;
     const wheelOffsets = [
-      [-1.15, 0.38, 1.4],
-      [1.15, 0.38, 1.4],
-      [-1.15, 0.38, -1.4],
-      [1.15, 0.38, -1.4],
+      [-(width / 2), wheelR, length * 0.3],
+      [width / 2, wheelR, length * 0.3],
+      [-(width / 2), wheelR, -length * 0.3],
+      [width / 2, wheelR, -length * 0.3],
     ];
     wheelOffsets.forEach(([wx, wy, wz]) => {
-      const tireGeo = new THREE.CylinderGeometry(0.38, 0.38, 0.26, 16);
+      const tireGeo = new THREE.CylinderGeometry(wheelR, wheelR, 0.28, 16);
       tireGeo.rotateZ(Math.PI / 2);
       const tire = new THREE.Mesh(tireGeo, tireMat);
       tire.position.set(wx, wy, wz);
       car.add(tire);
     });
 
-    // Headlights
-    const hlMat = new THREE.MeshStandardMaterial({ color: 0xffffff, emissive: 0xfffae0, emissiveIntensity: 2.5 });
+    // Front Headlights
+    const hlMat = new THREE.MeshStandardMaterial({ color: 0xffffff, emissive: 0xfffae0, emissiveIntensity: 2.2 });
     const hlLeft = new THREE.Mesh(new THREE.BoxGeometry(0.35, 0.16, 0.1), hlMat);
-    hlLeft.position.set(-0.75, 0.65, 2.3);
+    hlLeft.position.set(-(width * 0.35), isSuv ? 0.72 : 0.65, length / 2);
     const hlRight = new THREE.Mesh(new THREE.BoxGeometry(0.35, 0.16, 0.1), hlMat);
-    hlRight.position.set(0.75, 0.65, 2.3);
+    hlRight.position.set(width * 0.35, isSuv ? 0.72 : 0.65, length / 2);
     car.add(hlLeft, hlRight);
 
+    // Rear Taillights
+    const tlMat = new THREE.MeshStandardMaterial({ color: 0xff1122, emissive: 0xdd0011, emissiveIntensity: 2.5 });
+    const tlLeft = new THREE.Mesh(new THREE.BoxGeometry(0.35, 0.14, 0.1), tlMat);
+    tlLeft.position.set(-(width * 0.35), isSuv ? 0.72 : 0.65, -length / 2);
+    const tlRight = new THREE.Mesh(new THREE.BoxGeometry(0.35, 0.14, 0.1), tlMat);
+    tlRight.position.set(width * 0.35, isSuv ? 0.72 : 0.65, -length / 2);
+    car.add(tlLeft, tlRight);
+
     return car;
+  }
+
+  // --- 5c. Multiple Parked Vehicles Fleet along Calle Humboldt ---
+  private buildParkedVehicles(): THREE.Group {
+    const group = new THREE.Group();
+    this.parkedCarColliders = [];
+
+    // 14 Vehicles parked along north curbside (Z ~ 12.0) and south curbside (Z ~ 26.0)
+    const fleetConfigs: { x: number; z: number; rotY: number; color: number; type: 'sedan' | 'suv' | 'taxi' }[] = [
+      // North curbside lane (near arena plaza sidewalk)
+      { x: -52, z: 11.5, rotY: 0, color: 0x0f172a, type: 'sedan' }, // Midnight
+      { x: -39, z: 11.5, rotY: 0, color: 0x1e3a8a, type: 'sedan' }, // Deep Blue
+      { x: -27, z: 11.5, rotY: 0, color: 0x991b1b, type: 'sedan' }, // Crimson Red
+      { x: -14, z: 11.5, rotY: 0, color: 0x475569, type: 'suv' },   // Slate SUV
+      { x: 12, z: 11.5, rotY: 0, color: 0xf1f5f9, type: 'sedan' },  // Pearl White
+      { x: 25, z: 11.5, rotY: 0, color: 0x0284c7, type: 'sedan' },  // Movistar Blue
+      { x: 38, z: 11.5, rotY: 0, color: 0x18181b, type: 'suv' },    // Black SUV
+      { x: 50, z: 11.5, rotY: 0, color: 0xeab308, type: 'taxi' },   // BA Yellow Taxi
+
+      // South curbside lane (across the avenue)
+      { x: -46, z: 26.5, rotY: Math.PI, color: 0x3b0764, type: 'sedan' }, // Purple
+      { x: -32, z: 26.5, rotY: Math.PI, color: 0x047857, type: 'sedan' }, // Emerald
+      { x: -16, z: 26.5, rotY: Math.PI, color: 0x334155, type: 'suv' },   // Charcoal SUV
+      { x: 8, z: 26.5, rotY: Math.PI, color: 0xd97706, type: 'sedan' },    // Amber
+      { x: 28, z: 26.5, rotY: Math.PI, color: 0x831843, type: 'sedan' },   // Bordeaux
+      { x: 44, z: 26.5, rotY: Math.PI, color: 0xeab308, type: 'taxi' },    // BA Yellow Taxi
+    ];
+
+    const bayLineMat = new THREE.MeshStandardMaterial({ color: 0xffffff, roughness: 0.45, emissive: 0x333333 });
+
+    fleetConfigs.forEach((cfg) => {
+      const car = this.buildProceduralCar(cfg.color, cfg.type);
+      car.position.set(cfg.x, 0, cfg.z);
+      car.rotation.y = cfg.rotY;
+      group.add(car);
+
+      // Register collision bounding box (width ~2.4m, length ~4.9m)
+      const halfW = 1.35;
+      const halfL = 2.5;
+      this.parkedCarColliders.push({
+        minX: cfg.x - halfW,
+        maxX: cfg.x + halfW,
+        minZ: cfg.z - halfL,
+        maxZ: cfg.z + halfL,
+      });
+
+      // Painted white parking slot markings on the street
+      const bay1 = new THREE.Mesh(new THREE.PlaneGeometry(0.12, 5.0), bayLineMat);
+      bay1.rotateX(-Math.PI / 2);
+      bay1.position.set(cfg.x - 1.5, 0.025, cfg.z);
+      group.add(bay1);
+
+      const bay2 = new THREE.Mesh(new THREE.PlaneGeometry(0.12, 5.0), bayLineMat);
+      bay2.rotateX(-Math.PI / 2);
+      bay2.position.set(cfg.x + 1.5, 0.025, cfg.z);
+      group.add(bay2);
+    });
+
+    return group;
   }
 
   // --- Per-frame Animations & Lighting Dynamics ---
@@ -1799,8 +1948,10 @@ export class VenueScene {
     isBlackout: boolean,
     isExiting: boolean
   ): void {
-    // 1. Audio-reactive Jumbotron Visualizer
-    this.jumbotronController.update(audioBass, audioVol, audioTreble);
+    // 1. Audio-reactive Jumbotron Visualizer (when not displaying custom media)
+    if (!this.isCustomMediaActive) {
+      this.jumbotronController.update(audioBass, audioVol, audioTreble);
+    }
 
     // 2. Animate Seat Beacon and Gate Marker
     if (this.seatBeacon && this.seatBeacon.visible && this.seatBeacon.children[2]) {
@@ -1971,40 +2122,151 @@ export class VenueScene {
     }
   }
 
-  // --- Video Texture Stream Hook (WebRTC Camera) ---
-  public setCameraStream(stream: MediaStream): void {
-    if (!this.videoElement) {
-      this.videoElement = document.createElement('video');
-      this.videoElement.autoplay = true;
-      this.videoElement.playsInline = true;
-      this.videoElement.muted = true;
+  // --- Custom Screen Media (GIF / Video / Image on Main Stage LED Screen) ---
+  public async setCustomMedia(file: File): Promise<string> {
+    this.customMediaFile = file;
+    if (this.customMediaUrl) {
+      URL.revokeObjectURL(this.customMediaUrl);
     }
-    this.videoElement.srcObject = stream;
-    this.videoElement.play().catch(console.warn);
+    const url = URL.createObjectURL(file);
+    this.customMediaUrl = url;
 
-    this.cameraVideoTexture = new THREE.VideoTexture(this.videoElement);
-    this.cameraVideoTexture.colorSpace = THREE.SRGBColorSpace;
+    // Clean up previous media resources
+    if (this.gifAnimationStop) {
+      this.gifAnimationStop();
+      this.gifAnimationStop = null;
+    }
+    if (this.customVideoElement) {
+      this.customVideoElement.pause();
+      this.customVideoElement.src = '';
+      this.customVideoElement = null;
+    }
 
-    const camMat = new THREE.MeshBasicMaterial({ map: this.cameraVideoTexture });
-    this.jumbotronMeshLeft.material = camMat;
-    this.jumbotronMeshRight.material = camMat;
+    const isVideo = file.type.startsWith('video/');
+
+    if (isVideo) {
+      const vid = document.createElement('video');
+      vid.autoplay = true;
+      vid.playsInline = true;
+      vid.loop = true;
+      vid.muted = true;
+      vid.src = url;
+      vid.play().catch(console.warn);
+      this.customVideoElement = vid;
+
+      const videoTex = new THREE.VideoTexture(vid);
+      videoTex.colorSpace = THREE.SRGBColorSpace;
+      videoTex.minFilter = THREE.LinearFilter;
+      videoTex.magFilter = THREE.LinearFilter;
+      this.customTexture = videoTex;
+    } else {
+      // GIF or Still Image
+      const isGif = file.type === 'image/gif' || file.name.toLowerCase().endsWith('.gif');
+      // eslint-disable-next-line @typescript-eslint/no-explicit-any
+      const hasImageDecoder = typeof window !== 'undefined' && 'ImageDecoder' in window && typeof (window as any).ImageDecoder === 'function';
+
+      if (isGif && hasImageDecoder) {
+        try {
+          // eslint-disable-next-line @typescript-eslint/no-explicit-any
+          const imageDecoder = new (window as any).ImageDecoder({
+            data: file.stream(),
+            type: 'image/gif',
+          });
+
+          const canvas = document.createElement('canvas');
+          const ctx = canvas.getContext('2d')!;
+          const tex = new THREE.CanvasTexture(canvas);
+          tex.colorSpace = THREE.SRGBColorSpace;
+          tex.minFilter = THREE.LinearFilter;
+          tex.magFilter = THREE.LinearFilter;
+          this.customTexture = tex;
+
+          let frameIndex = 0;
+          let active = true;
+          this.gifAnimationStop = () => { active = false; };
+
+          const decodeNext = async () => {
+            if (!active) return;
+            try {
+              const frame = await imageDecoder.decode({ frameIndex });
+              if (canvas.width !== frame.image.displayWidth || canvas.height !== frame.image.displayHeight) {
+                canvas.width = frame.image.displayWidth;
+                canvas.height = frame.image.displayHeight;
+              }
+              ctx.clearRect(0, 0, canvas.width, canvas.height);
+              ctx.drawImage(frame.image, 0, 0);
+              tex.needsUpdate = true;
+              const duration = (frame.image.duration || 80000) / 1000;
+              frame.image.close();
+              const trackCount = imageDecoder.tracks?.selectedTrack?.frameCount || 1;
+              frameIndex = (frameIndex + 1) % trackCount;
+              setTimeout(decodeNext, Math.max(30, duration));
+            } catch {
+              // fallback if decode error
+            }
+          };
+          decodeNext();
+        } catch (e) {
+          console.warn('ImageDecoder failed, using standard loader:', e);
+          const loader = new THREE.TextureLoader();
+          const tex = await loader.loadAsync(url);
+          tex.colorSpace = THREE.SRGBColorSpace;
+          this.customTexture = tex;
+        }
+      } else {
+        const loader = new THREE.TextureLoader();
+        const tex = await loader.loadAsync(url);
+        tex.colorSpace = THREE.SRGBColorSpace;
+        this.customTexture = tex;
+      }
+    }
+
+    return url;
   }
 
-  public removeCameraStream(): void {
-    if (this.videoElement && this.videoElement.srcObject) {
-      const stream = this.videoElement.srcObject as MediaStream;
-      stream.getTracks().forEach((t) => t.stop());
-      this.videoElement.srcObject = null;
+  public activateCustomMediaOnScreen(): void {
+    if (!this.customTexture) return;
+    this.isCustomMediaActive = true;
+    const mediaMat = new THREE.MeshBasicMaterial({ map: this.customTexture });
+    if (this.mainLedScreenMesh) {
+      this.mainLedScreenMesh.material = mediaMat;
     }
-    this.cameraVideoTexture = null;
+    if (this.jumbotronMeshLeft) {
+      this.jumbotronMeshLeft.material = mediaMat;
+    }
+    if (this.jumbotronMeshRight) {
+      this.jumbotronMeshRight.material = mediaMat;
+    }
+  }
 
-    const screenMat = new THREE.MeshBasicMaterial({ map: this.jumbotronController.texture });
-    this.jumbotronMeshLeft.material = screenMat;
-    this.jumbotronMeshRight.material = screenMat;
+  public resetScreenToDefault(): void {
+    this.isCustomMediaActive = false;
+    const defaultMat = new THREE.MeshBasicMaterial({ map: this.jumbotronController.texture });
+    if (this.mainLedScreenMesh) {
+      this.mainLedScreenMesh.material = defaultMat;
+    }
+    if (this.jumbotronMeshLeft) {
+      this.jumbotronMeshLeft.material = defaultMat;
+    }
+    if (this.jumbotronMeshRight) {
+      this.jumbotronMeshRight.material = defaultMat;
+    }
   }
 
   public dispose(): void {
-    this.removeCameraStream();
+    if (this.gifAnimationStop) {
+      this.gifAnimationStop();
+      this.gifAnimationStop = null;
+    }
+    if (this.customVideoElement) {
+      this.customVideoElement.pause();
+      this.customVideoElement.src = '';
+      this.customVideoElement = null;
+    }
+    if (this.customMediaUrl) {
+      URL.revokeObjectURL(this.customMediaUrl);
+      this.customMediaUrl = null;
+    }
     this.renderer.dispose();
   }
 }

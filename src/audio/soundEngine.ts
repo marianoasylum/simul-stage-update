@@ -7,15 +7,12 @@ import { AudioMetrics } from '../types';
 class SoundEngine {
   private ctx: AudioContext | null = null;
   private analyser: AnalyserNode | null = null;
-  private micStream: MediaStream | null = null;
-  private micSource: MediaStreamAudioSourceNode | null = null;
   private musicGain: GainNode | null = null;
   private sfxGain: GainNode | null = null;
   private isMusicPlaying = false;
   private musicInterval: number | null = null;
   private currentStep = 0;
   private freqData: Uint8Array<ArrayBuffer> | null = null;
-  private micVolumeMultiplier = 2.0;
 
   // Track variation
   private trackBpm = 124;
@@ -50,42 +47,6 @@ class SoundEngine {
     }
   }
 
-  public async connectMicrophone(): Promise<boolean> {
-    this.init();
-    if (!navigator.mediaDevices || !navigator.mediaDevices.getUserMedia) {
-      return false;
-    }
-
-    try {
-      this.micStream = await navigator.mediaDevices.getUserMedia({ audio: true, video: false });
-      if (this.ctx && this.analyser) {
-        this.micSource = this.ctx.createMediaStreamSource(this.micStream);
-        // Connect to analyser ONLY, NOT to destination (to avoid acoustic feedback)
-        this.micSource.connect(this.analyser);
-        return true;
-      }
-    } catch (err) {
-      console.warn('Microphone permission or connection failed:', err);
-      return false;
-    }
-    return false;
-  }
-
-  public disconnectMicrophone(): void {
-    if (this.micStream) {
-      this.micStream.getTracks().forEach((track) => track.stop());
-      this.micStream = null;
-    }
-    if (this.micSource) {
-      try {
-        this.micSource.disconnect();
-      } catch {
-        // Ignore disconnect errors
-      }
-      this.micSource = null;
-    }
-  }
-
   public getAudioMetrics(): AudioMetrics {
     if (!this.analyser || !this.freqData) {
       return { volume: 0, bassLevel: 0, trebleLevel: 0 };
@@ -107,7 +68,7 @@ class SoundEngine {
       }
     }
 
-    const avgVol = (total / length) * this.micVolumeMultiplier;
+    const avgVol = (total / length) * 1.5;
     const avgBass = (bassTotal / bassBins) * 1.3;
     const trebleBinStart = Math.floor(length * 0.6);
     let trebleTotal = 0;

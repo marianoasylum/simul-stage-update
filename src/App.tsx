@@ -9,7 +9,6 @@ import { VenueScene } from './scene/venueScene';
 import { CameraRig, RigInput } from './scene/cameraRig';
 import { soundEngine } from './audio/soundEngine';
 import { TicketSelector } from './components/TicketSelector';
-import { SensorPermissionModal } from './components/SensorPermissionModal';
 import { HUDOverlay } from './components/HUDOverlay';
 import { TouchJoystick } from './components/TouchJoystick';
 import { ConcertEndModal } from './components/ConcertEndModal';
@@ -62,6 +61,8 @@ export default function App() {
     gpsWalkEnabled: false,
     gpsDistanceWalked: 0,
     gpsAccuracy: null,
+    customMediaName: null,
+    customMediaUrl: null,
   });
 
   const [isNearSeat, setIsNearSeat] = useState(false);
@@ -85,7 +86,6 @@ export default function App() {
   // Real-World GPS Walking Refs
   const gpsWatchIdRef = useRef<number | null>(null);
   const lastGpsCoordsRef = useRef<{ lat: number; lng: number } | null>(null);
-  const cameraStreamRef = useRef<MediaStream | null>(null);
 
   // --- 1. Three.js Initialization ---
   useEffect(() => {
@@ -213,19 +213,6 @@ export default function App() {
     window.addEventListener('mousemove', handleMouseMove);
     window.addEventListener('mouseup', handleMouseUp);
 
-    // Device Orientation (Gyroscope) Listener
-    const handleDeviceOrientation = (e: DeviceOrientationEvent) => {
-      if (e.alpha !== null && e.beta !== null && e.gamma !== null) {
-        cameraRigRef.current?.setDeviceOrientation(e.alpha, e.beta, e.gamma);
-        setAppState((prev) => ({
-          ...prev,
-          sensors: { ...prev.sensors, gyroscopeActive: true },
-          orientationData: { alpha: e.alpha || 0, beta: e.beta || 0, gamma: e.gamma || 0 },
-        }));
-      }
-    };
-    window.addEventListener('deviceorientation', handleDeviceOrientation);
-
     // Render loop
     const clock = new THREE.Clock();
     let animId = 0;
@@ -335,7 +322,6 @@ export default function App() {
       window.removeEventListener('mousedown', handleMouseDown);
       window.removeEventListener('mousemove', handleMouseMove);
       window.removeEventListener('mouseup', handleMouseUp);
-      window.removeEventListener('deviceorientation', handleDeviceOrientation);
       if (gpsWatchIdRef.current !== null && 'geolocation' in navigator) {
         navigator.geolocation.clearWatch(gpsWatchIdRef.current);
       }
@@ -405,6 +391,7 @@ export default function App() {
           if (newTimeRemaining <= 1) {
             // Trigger Concert automatically when time expires!
             soundEngine.startConcertMusic();
+            venueSceneRef.current?.activateCustomMediaOnScreen();
             newPhase = 'CONCERT_PLAYING';
             newTimeRemaining = 0;
           } else {
@@ -486,59 +473,36 @@ export default function App() {
     setAppState((prev) => ({
       ...prev,
       ticket,
-      phase: 'PERMISSIONS_MODAL',
-    }));
-  };
-
-  const handlePermissionsFinished = (sensors: {
-    gyroAllowed: boolean;
-    micAllowed: boolean;
-    cameraStream: MediaStream | null;
-    gpsAllowed?: boolean;
-  }) => {
-    cameraStreamRef.current = sensors.cameraStream;
-    if (sensors.cameraStream && venueSceneRef.current) {
-      venueSceneRef.current.setCameraStream(sensors.cameraStream);
-    }
-
-    setAppState((prev) => ({
-      ...prev,
       isInitialized: true,
       phase: 'WALKING_OUTSIDE',
-      sensors: {
-        gyroscopeAllowed: sensors.gyroAllowed,
-        gyroscopeActive: sensors.gyroAllowed,
-        micAllowed: sensors.micAllowed,
-        micActive: sensors.micAllowed,
-        cameraAllowed: !!sensors.cameraStream,
-        cameraActive: !!sensors.cameraStream,
-      },
     }));
-
-    if (sensors.gpsAllowed) {
-      handleToggleGpsWalk();
-    }
   };
 
-  const toggleHardwareTorch = (enabled: boolean) => {
-    const stream = cameraStreamRef.current;
-    if (!stream) return;
+  const handleAttachMedia = useCallback(async (file: File) => {
+    if (!venueSceneRef.current) return;
     try {
-      const track = stream.getVideoTracks()[0];
-      if (track && 'applyConstraints' in track) {
-        // eslint-disable-next-line @typescript-eslint/no-explicit-any
-        const capabilities = (track.getCapabilities && track.getCapabilities()) || ({} as any);
-        if ('torch' in capabilities) {
-          track.applyConstraints({
-            // eslint-disable-next-line @typescript-eslint/no-explicit-any
-            advanced: [{ torch: enabled } as any],
-          }).catch((err) => console.warn('Torch constraint warning:', err));
-        }
+      const url = await venueSceneRef.current.setCustomMedia(file);
+      if (phaseRef.current === 'CONCERT_PLAYING' || phaseRef.current === 'CONCERT_FINALE') {
+        venueSceneRef.current.activateCustomMediaOnScreen();
       }
+      setAppState((prev) => ({
+        ...prev,
+        customMediaName: file.name,
+        customMediaUrl: url,
+      }));
     } catch (err) {
-      console.warn('Torch warning:', err);
+      console.warn('Failed to attach custom media:', err);
     }
-  };
+  }, []);
+
+  const handleClearCustomMedia = useCallback(() => {
+    venueSceneRef.current?.resetScreenToDefault();
+    setAppState((prev) => ({
+      ...prev,
+      customMediaName: null,
+      customMediaUrl: null,
+    }));
+  }, []);
 
   const toggleFlashlight = useCallback(() => {
     soundEngine.playFlashlightClick();
@@ -546,7 +510,6 @@ export default function App() {
     setAppState((prev) => {
       const next = !prev.flashlightOn;
       venueSceneRef.current?.setFlashlight(next);
-      toggleHardwareTorch(next);
 
       // If turning OFF, immediately clear any expulsion countdown
       if (!next) {
@@ -690,6 +653,7 @@ export default function App() {
 
   const handleStartShowNow = useCallback(() => {
     soundEngine.startConcertMusic();
+    venueSceneRef.current?.activateCustomMediaOnScreen();
     setAppState((prev) => ({
       ...prev,
       timeRemainingSeconds: 0,
@@ -702,7 +666,6 @@ export default function App() {
   const handleResetFromEntrance = useCallback(() => {
     cameraRigRef.current?.resetToEntrance();
     venueSceneRef.current?.setFlashlight(false);
-    toggleHardwareTorch(false);
     setAppState((prev) => ({
       ...prev,
       phase: 'INSIDE_VENUE',
@@ -717,7 +680,6 @@ export default function App() {
     soundEngine.stopConcertMusic();
     venueSceneRef.current?.setSeatBeaconVisible(true);
     venueSceneRef.current?.setFlashlight(false);
-    toggleHardwareTorch(false);
     if (cameraRigRef.current) {
       cameraRigRef.current.position.set(2.2, 1.65, 42.5);
       cameraRigRef.current.yaw = Math.PI;
@@ -763,9 +725,8 @@ export default function App() {
         className="absolute inset-0 w-full h-full block cursor-grab active:cursor-grabbing touch-none z-10"
       />
 
-      {/* Mobile Touch Controller (only active in first-person gameplay) */}
+      {/* Floating Dynamic Touch Controller (appears ONLY when finger contacts screen) */}
       {appState.phase !== 'TICKET_SELECTION' &&
-        appState.phase !== 'PERMISSIONS_MODAL' &&
         appState.phase !== 'SPEED_LIMIT_FAIL' && (
           <TouchJoystick
             onMove={handleTouchMove}
@@ -779,13 +740,8 @@ export default function App() {
         <TicketSelector onTicketConfirmed={handleTicketConfirmed} />
       )}
 
-      {/* Screen 2: Sensor Authorization Modal */}
-      {appState.phase === 'PERMISSIONS_MODAL' && (
-        <SensorPermissionModal onPermissionsFinished={handlePermissionsFinished} />
-      )}
-
       {/* In-Game HUD Overlay (Top status, Bottom dock, prompts) */}
-      {appState.phase !== 'TICKET_SELECTION' && appState.phase !== 'PERMISSIONS_MODAL' && (
+      {appState.phase !== 'TICKET_SELECTION' && (
         <HUDOverlay
           appState={appState}
           isNearSeat={isNearSeat}
@@ -797,6 +753,8 @@ export default function App() {
           onStartShowNow={handleStartShowNow}
           onResetFromEntrance={handleResetFromEntrance}
           onResetComplete={handleResetComplete}
+          onAttachMedia={handleAttachMedia}
+          onClearCustomMedia={handleClearCustomMedia}
         />
       )}
 

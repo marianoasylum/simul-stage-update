@@ -73,4 +73,6 @@ export interface AppState {
   gpsWalkEnabled: boolean;
   gpsDistanceWalked: number;
   gpsAccuracy: number | null;
+  customMediaName: string | null;
+  customMediaUrl: string | null;
 }
