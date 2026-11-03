@@ -81,4 +81,10 @@ export interface AppState {
   hasExploredEmptyVenue: boolean;
   blackoutCycle: number;
   targetBlackouts: number;
+  stageLightsOn: boolean;
+  stageScreensOn: boolean;
+  gifScreenActive: boolean;
+  gifPreviewsUsed: number; // 0 to 3 uses before concert
+  isNearStagePanel: boolean;
+  currentSeatName: string | null;
 }

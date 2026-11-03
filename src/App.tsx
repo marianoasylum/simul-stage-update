@@ -68,6 +68,12 @@ export default function App() {
     hasExploredEmptyVenue: false,
     blackoutCycle: 0,
     targetBlackouts: 2,
+    stageLightsOn: true,
+    stageScreensOn: true,
+    gifScreenActive: false,
+    gifPreviewsUsed: 0,
+    isNearStagePanel: false,
+    currentSeatName: null,
   });
 
   const [isNearSeat, setIsNearSeat] = useState(false);
@@ -104,8 +110,16 @@ export default function App() {
     cameraRigRef.current = rig;
 
     // Rig callbacks
-    rig.onNearSeatChanged = (near) => {
+    rig.onNearSeatChanged = (near, label) => {
       setIsNearSeat(near);
+      setAppState((prev) => ({
+        ...prev,
+        currentSeatName: near ? (label || null) : null,
+      }));
+    };
+
+    rig.onNearStagePanelChanged = (near) => {
+      setAppState((prev) => ({ ...prev, isNearStagePanel: near }));
     };
 
     rig.onSpeedLimitExceeded = () => {
@@ -476,9 +490,17 @@ export default function App() {
             newIsVenueEmpty = true;
             newHasExplored = true;
             venueSceneRef.current?.setVenueEmpty(true);
+            venueSceneRef.current?.setStageLights(false); // Turn off all stage lights when venue is empty
             if (cameraRigRef.current) {
               cameraRigRef.current.allowSprintInVenue = true;
             }
+            return {
+              ...prev,
+              audienceExitRemainingSeconds: 0,
+              isVenueEmpty: true,
+              hasExploredEmptyVenue: true,
+              stageLightsOn: false,
+            };
           } else {
             newAudienceExitSeconds -= 1;
           }
@@ -642,10 +664,63 @@ export default function App() {
       phase:
         prev.phase === 'CONCERT_PLAYING' ||
         prev.phase === 'CONCERT_BLACKOUT' ||
-        prev.phase === 'CONCERT_FINALE'
+        prev.phase === 'CONCERT_FINALE' ||
+        prev.phase === 'EXITING_VENUE'
           ? prev.phase
           : 'SEATED_WAITING',
     }));
+  }, []);
+
+  const handleToggleStageLights = useCallback(() => {
+    soundEngine.playSwitchClick();
+    setAppState((prev) => {
+      const next = !prev.stageLightsOn;
+      venueSceneRef.current?.setStageLights(next);
+      return { ...prev, stageLightsOn: next };
+    });
+  }, []);
+
+  const handleToggleStageScreens = useCallback(() => {
+    soundEngine.playSwitchClick();
+    setAppState((prev) => {
+      const next = !prev.stageScreensOn;
+      venueSceneRef.current?.setStageScreens(next);
+      return { ...prev, stageScreensOn: next };
+    });
+  }, []);
+
+  const handleToggleGifScreen = useCallback(() => {
+    soundEngine.playSwitchClick();
+    setAppState((prev) => {
+      const isPreConcert =
+        prev.phase !== 'CONCERT_PLAYING' &&
+        prev.phase !== 'CONCERT_BLACKOUT' &&
+        prev.phase !== 'CONCERT_FINALE';
+
+      if (isPreConcert) {
+        if (prev.gifScreenActive) {
+          venueSceneRef.current?.setGifScreenActive(false);
+          soundEngine.stopConcertMusic();
+          return { ...prev, gifScreenActive: false };
+        } else {
+          // Pre-concert preview limit is up to 3 times
+          if (prev.gifPreviewsUsed >= 3) {
+            return prev;
+          }
+          venueSceneRef.current?.setGifScreenActive(true);
+          soundEngine.startConcertMusic();
+          return {
+            ...prev,
+            gifScreenActive: true,
+            gifPreviewsUsed: prev.gifPreviewsUsed + 1,
+          };
+        }
+      } else {
+        const next = !prev.gifScreenActive;
+        venueSceneRef.current?.setGifScreenActive(next);
+        return { ...prev, gifScreenActive: next };
+      }
+    });
   }, []);
 
   const handleStandUp = useCallback(() => {
@@ -764,6 +839,9 @@ export default function App() {
     cameraRigRef.current?.resetToEntrance();
     venueSceneRef.current?.setFlashlight(false);
     venueSceneRef.current?.setVenueEmpty(false);
+    venueSceneRef.current?.setStageLights(true);
+    venueSceneRef.current?.setStageScreens(true);
+    venueSceneRef.current?.setGifScreenActive(false);
     if (cameraRigRef.current) {
       cameraRigRef.current.allowSprintInVenue = false;
     }
@@ -778,6 +856,11 @@ export default function App() {
       isVenueEmpty: false,
       hasExploredEmptyVenue: false,
       blackoutCycle: 0,
+      stageLightsOn: true,
+      stageScreensOn: true,
+      gifScreenActive: false,
+      isNearStagePanel: false,
+      currentSeatName: null,
     }));
   }, []);
 
@@ -786,6 +869,9 @@ export default function App() {
     venueSceneRef.current?.setSeatBeaconVisible(true);
     venueSceneRef.current?.setFlashlight(false);
     venueSceneRef.current?.setVenueEmpty(false);
+    venueSceneRef.current?.setStageLights(true);
+    venueSceneRef.current?.setStageScreens(true);
+    venueSceneRef.current?.setGifScreenActive(false);
     if (cameraRigRef.current) {
       // Spawn facing the vehicle on Calle Humboldt with the venue in front (yaw = 0, looking down -Z)
       cameraRigRef.current.position.set(2.5, 1.65, 18.0);
@@ -812,6 +898,12 @@ export default function App() {
       isVenueEmpty: false,
       hasExploredEmptyVenue: false,
       blackoutCycle: 0,
+      stageLightsOn: true,
+      stageScreensOn: true,
+      gifScreenActive: false,
+      gifPreviewsUsed: 0,
+      isNearStagePanel: false,
+      currentSeatName: null,
     }));
   }, []);
 
@@ -869,6 +961,9 @@ export default function App() {
           onResetComplete={handleResetComplete}
           onAttachMedia={handleAttachMedia}
           onClearCustomMedia={handleClearCustomMedia}
+          onToggleStageLights={handleToggleStageLights}
+          onToggleStageScreens={handleToggleStageScreens}
+          onToggleGifScreen={handleToggleGifScreen}
         />
       )}
 

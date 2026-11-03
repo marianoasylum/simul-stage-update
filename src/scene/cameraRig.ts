@@ -55,9 +55,14 @@ export class CameraRig {
   // Step sound timer
   private stepTimer = 0;
 
+  // Stage switchboard & Any-seat interaction
+  public isNearStagePanel = false;
+  public activeAnySeat: { pos: THREE.Vector3; rotY: number; label: string } | null = null;
+
   // Callbacks
   public onSpeedLimitExceeded: () => void = () => {};
-  public onNearSeatChanged: (near: boolean) => void = () => {};
+  public onNearSeatChanged: (near: boolean, seatLabel?: string) => void = () => {};
+  public onNearStagePanelChanged: (near: boolean) => void = () => {};
   public onExitReached: () => void = () => {};
 
   constructor(scene: VenueScene) {
@@ -158,8 +163,9 @@ export class CameraRig {
 
     this.camera.position.copy(this.position);
 
-    // 3. Proximity Checks (Seat & Exit)
+    // 3. Proximity Checks (Seat, Stage Switchboard & Exit)
     this.checkSeatProximity();
+    this.checkStagePanelProximity();
     this.checkExitProximity();
   }
 
@@ -306,7 +312,30 @@ export class CameraRig {
       if (absX >= 38.6 - r) return true;
       // Rear stage wall at Z = -86.5
       if (z <= -86.2 + r) return true;
-      // Note: Central block has been replaced by the open Planta Baja Trasera sector.
+
+      // 7b. Dividing Walls between Campo Delantero and Planta Baja Trasera (Z = -43.5)
+      // Spans lateral widths |X| between 1.85 and 14.0, preserving the central corridor
+      if (Math.abs(z - (-43.5)) <= 0.25 + r && absX >= 1.85 - r && absX <= 14.0 + r) {
+        return true;
+      }
+
+      // 7c. Ground Floor Seat Rows Collision (Campo Delantero & Planta Baja Trasera)
+      // Blocks walking through the physical chair blocks when standing, while keeping central walkway |x| < 1.05 and row aisles navigable
+      if (!this.isSeated && !this.isTransitioningSeat && this.position.y < 1.45) {
+        if (absX >= 1.05 - r && absX <= 14.2 + r) {
+          const groundRows = [-26, -29, -32, -35, -38, -41, -46, -49, -52, -55, -58, -61, -64, -67];
+          for (let i = 0; i < groundRows.length; i++) {
+            if (Math.abs(z - groundRows[i]) <= 0.45 + r) {
+              return true;
+            }
+          }
+        }
+      }
+
+      // 7d. Stage Switchboard Rack Console (Z = -83.7 on stage platform)
+      if (this.position.y >= 1.4 && Math.abs(z - (-83.7)) <= 0.35 + r && absX <= 1.25 + r) {
+        return true;
+      }
     }
 
     // 8. Outdoor Calle Humboldt Boundaries & Parked Vehicle Fleet Collisions
@@ -392,14 +421,60 @@ export class CameraRig {
   }
 
   private checkSeatProximity(): void {
+    if (this.scene.isVenueEmpty) {
+      // When venue is empty, allow user to sit in ANY seat in the venue!
+      let closestDist = Infinity;
+      let closestSeat: { pos: THREE.Vector3; rotY: number; label: string } | null = null;
+
+      for (const seat of this.scene.allSeatPositions) {
+        const dist = Math.hypot(this.position.x - seat.pos.x, this.position.z - seat.pos.z);
+        if (dist < closestDist) {
+          closestDist = dist;
+          closestSeat = seat;
+        }
+      }
+
+      const near = closestDist < 1.65 && this.isInsideVenue;
+      if (near && closestSeat) {
+        this.activeAnySeat = closestSeat;
+        if (!this.isNearSeat) {
+          this.isNearSeat = true;
+          this.onNearSeatChanged(true, closestSeat.label);
+          if (navigator.vibrate) navigator.vibrate(35);
+        }
+      } else {
+        this.activeAnySeat = null;
+        if (this.isNearSeat) {
+          this.isNearSeat = false;
+          this.onNearSeatChanged(false);
+        }
+      }
+      return;
+    }
+
+    // Normal ticket seat proximity before/during concert
     const target = this.scene.targetSeatCoords.position;
     const dist = Math.hypot(this.position.x - target.x, this.position.z - target.z);
     const near = dist < 2.4 && this.isInsideVenue;
     if (near !== this.isNearSeat) {
       this.isNearSeat = near;
-      this.onNearSeatChanged(near);
+      this.activeAnySeat = null;
+      this.onNearSeatChanged(near, 'Tu Asiento Asignado');
       if (near && navigator.vibrate) {
         navigator.vibrate(40);
+      }
+    }
+  }
+
+  private checkStagePanelProximity(): void {
+    // Switchboard is located under the main LED screen at (0, 2.35, -83.7) on stage (Y >= 1.4)
+    const dist = Math.hypot(this.position.x - 0, this.position.z - (-83.7));
+    const near = dist < 2.6 && this.position.y >= 1.4 && this.isInsideVenue;
+    if (near !== this.isNearStagePanel) {
+      this.isNearStagePanel = near;
+      this.onNearStagePanelChanged(near);
+      if (near && navigator.vibrate) {
+        navigator.vibrate(30);
       }
     }
   }
@@ -424,14 +499,24 @@ export class CameraRig {
     this.seatTransitionProgress = 0;
 
     this.seatStartPos.copy(this.position);
-    const targetSeat = this.scene.targetSeatCoords.position;
-    // Seated camera height is ~1.05m above seat base
-    this.seatTargetPos.set(targetSeat.x, targetSeat.y + 0.95, targetSeat.z + 0.15);
 
-    // Calculate yaw towards the stage center
-    const toStage = new THREE.Vector3().subVectors(this.scene.targetSeatCoords.lookTarget, this.seatTargetPos);
-    this.seatTargetYaw = Math.atan2(-toStage.x, -toStage.z);
-    this.seatTargetPitch = 0.08;
+    if (this.scene.isVenueEmpty && this.activeAnySeat) {
+      // Sit in the detected nearby seat
+      const seat = this.activeAnySeat;
+      this.seatTargetPos.set(seat.pos.x, seat.pos.y + 0.95, seat.pos.z + 0.15);
+      const toStage = new THREE.Vector3(0, 2.5, -80).sub(this.seatTargetPos);
+      this.seatTargetYaw = Math.atan2(-toStage.x, -toStage.z);
+      this.seatTargetPitch = 0.08;
+    } else {
+      const targetSeat = this.scene.targetSeatCoords.position;
+      // Seated camera height is ~1.05m above seat base
+      this.seatTargetPos.set(targetSeat.x, targetSeat.y + 0.95, targetSeat.z + 0.15);
+
+      // Calculate yaw towards the stage center
+      const toStage = new THREE.Vector3().subVectors(this.scene.targetSeatCoords.lookTarget, this.seatTargetPos);
+      this.seatTargetYaw = Math.atan2(-toStage.x, -toStage.z);
+      this.seatTargetPitch = 0.08;
+    }
 
     soundEngine.playSitDown();
     if (navigator.vibrate) navigator.vibrate([40, 30, 60]);

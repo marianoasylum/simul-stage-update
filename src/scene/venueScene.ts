@@ -100,6 +100,22 @@ export class VenueScene {
   public customVideoElement: HTMLVideoElement | null = null;
   private gifAnimationStop: (() => void) | null = null;
 
+  // All Venue Seat Positions for Free Sitting Mode when empty
+  public allSeatPositions: { pos: THREE.Vector3; rotY: number; label: string }[] = [];
+
+  // Stage Switchboard & Separate Controls (under main screen)
+  public stageLightsManualOn = true;
+  public stageScreensManualOn = true;
+  public gifScreenManualActive = false;
+  public isGifRhythmicFadeActive = false;
+  public gifRhythmicPhaseTimer = 0;
+  public stageSwitchCoords = new THREE.Vector3(0, 2.35, -83.7);
+
+  // Switch LED indicator materials for 3D rack
+  public switchLightLedMat: THREE.MeshStandardMaterial | null = null;
+  public switchScreenLedMat: THREE.MeshStandardMaterial | null = null;
+  public switchGifLedMat: THREE.MeshStandardMaterial | null = null;
+
   // Boundary markers: Entrances are at Z = -4.73
   public entranceZ = -4.73; // Outdoor Z > -4.73, Inside Z <= -4.73
   public exitLocations = [
@@ -233,6 +249,7 @@ export class VenueScene {
 
     // 9. Stage Platform & Band Equipment for Walkthrough Tour
     this.buildStageExplorationArea();
+    this.buildStageControlRack();
 
     // 10. Front Facade Wall & 16 Entrance Gate Portals
     this.buildFrontVenueFacade();
@@ -501,7 +518,26 @@ export class VenueScene {
             }
           });
 
-          // 4. Create InstancedMesh for All Base Scenario Seats
+          // 4. Populate allSeatPositions for free sitting mode when venue is empty
+          this.allSeatPositions = seatTransforms.map((st, i) => {
+            let label = `Asiento ${i + 1}`;
+            if (st.pos.z <= -45.0 && Math.abs(st.pos.x) <= 15.0) {
+              const r = Math.round((-st.pos.z - 46.0) / 2.2) + 1;
+              label = `Campo Delantero / VIP (Fila ${r})`;
+            } else if (st.pos.z <= -24.0 && st.pos.z > -45.0 && Math.abs(st.pos.x) <= 15.0) {
+              const r = Math.round((-st.pos.z - 26.0) / 2.0) + 1;
+              label = `Planta Baja Trasera (Fila ${r})`;
+            } else if (Math.abs(st.pos.x) >= 27.0) {
+              label = `Platea Alta / Tribuna (${st.pos.x > 0 ? 'Sector Este' : 'Sector Oeste'})`;
+            } else if (Math.abs(st.pos.x) >= 15.0) {
+              label = `Platea Baja (${st.pos.x > 0 ? 'Sector Este' : 'Sector Oeste'})`;
+            } else {
+              label = `Cabecera Posterior`;
+            }
+            return { pos: st.pos.clone(), rotY: st.rotY, label };
+          });
+
+          // 5. Create InstancedMesh for All Base Scenario Seats
           const count = seatTransforms.length;
           const instancedMesh = new THREE.InstancedMesh(rawGeo, seatMat, count);
           instancedMesh.castShadow = true;
@@ -1015,6 +1051,179 @@ export class VenueScene {
     stageGroup.add(crossTruss);
 
     this.scene.add(stageGroup);
+  }
+
+  // --- 9b. Master Stage & Lighting Control Rack (Under main screen at Z = -83.7) ---
+  private buildStageControlRack(): void {
+    const rackGroup = new THREE.Group();
+    rackGroup.position.copy(this.stageSwitchCoords); // (0, 2.35, -83.7)
+
+    // 1. Heavy-duty brushed steel rack chassis
+    const chassisGeo = new THREE.BoxGeometry(2.7, 1.15, 0.28);
+    const chassisMat = new THREE.MeshStandardMaterial({
+      color: 0x18202f,
+      metalness: 0.88,
+      roughness: 0.25,
+    });
+    const chassis = new THREE.Mesh(chassisGeo, chassisMat);
+    chassis.castShadow = true;
+    rackGroup.add(chassis);
+
+    // Front control panel faceplate
+    const faceplateGeo = new THREE.BoxGeometry(2.55, 1.05, 0.04);
+    const faceplateMat = new THREE.MeshStandardMaterial({
+      color: 0x0c121e,
+      metalness: 0.92,
+      roughness: 0.18,
+    });
+    const faceplate = new THREE.Mesh(faceplateGeo, faceplateMat);
+    faceplate.position.set(0, 0, 0.145);
+    rackGroup.add(faceplate);
+
+    // Glowing Header Sign: "PANEL DE CONTROL DE ESCENARIO"
+    const headerCanvas = document.createElement('canvas');
+    headerCanvas.width = 1024;
+    headerCanvas.height = 128;
+    const hCtx = headerCanvas.getContext('2d')!;
+    hCtx.fillStyle = '#060a14';
+    hCtx.fillRect(0, 0, 1024, 128);
+    hCtx.strokeStyle = '#00f0ff';
+    hCtx.lineWidth = 6;
+    hCtx.strokeRect(6, 6, 1012, 116);
+    hCtx.fillStyle = '#00f0ff';
+    hCtx.font = 'bold 44px system-ui, sans-serif';
+    hCtx.textAlign = 'center';
+    hCtx.fillText('★ INTERRUPTORES DE ESCENARIO ★', 512, 54);
+    hCtx.font = '600 28px system-ui, sans-serif';
+    hCtx.fillStyle = '#94a3b8';
+    hCtx.fillText('LUCES • PANTALLAS • GIF EN PANTALLA', 512, 98);
+
+    const headerTex = new THREE.CanvasTexture(headerCanvas);
+    headerTex.colorSpace = THREE.SRGBColorSpace;
+    const headerMesh = new THREE.Mesh(
+      new THREE.PlaneGeometry(2.4, 0.35),
+      new THREE.MeshBasicMaterial({ map: headerTex })
+    );
+    headerMesh.position.set(0, 0.34, 0.17);
+    rackGroup.add(headerMesh);
+
+    // Switch stations:
+    // 1. Stage Lights (X = -0.75)
+    // 2. Stage Screens (X = 0.0)
+    // 3. GIF Transmission (X = +0.75)
+    const switchBezelMat = new THREE.MeshStandardMaterial({ color: 0x475569, metalness: 0.95, roughness: 0.15 });
+
+    // LED Materials
+    this.switchLightLedMat = new THREE.MeshStandardMaterial({
+      color: 0x00ff88,
+      emissive: 0x00e676,
+      emissiveIntensity: 2.2,
+      roughness: 0.2,
+    });
+    this.switchScreenLedMat = new THREE.MeshStandardMaterial({
+      color: 0x00d4ff,
+      emissive: 0x00b0ff,
+      emissiveIntensity: 2.2,
+      roughness: 0.2,
+    });
+    this.switchGifLedMat = new THREE.MeshStandardMaterial({
+      color: 0x64748b,
+      emissive: 0x334155,
+      emissiveIntensity: 0.4,
+      roughness: 0.5,
+    });
+
+    const stations = [
+      { x: -0.75, label: 'LUCES', ledMat: this.switchLightLedMat, colorText: '#00ff88' },
+      { x: 0.0, label: 'PANTALLAS', ledMat: this.switchScreenLedMat, colorText: '#00d4ff' },
+      { x: 0.75, label: 'GIF PANTALLA', ledMat: this.switchGifLedMat, colorText: '#e879f9' },
+    ];
+
+    stations.forEach((st) => {
+      // Station Bezel
+      const bezel = new THREE.Mesh(new THREE.BoxGeometry(0.58, 0.48, 0.05), switchBezelMat);
+      bezel.position.set(st.x, -0.12, 0.17);
+      rackGroup.add(bezel);
+
+      // Station Text Label
+      const lblCanvas = document.createElement('canvas');
+      lblCanvas.width = 256;
+      lblCanvas.height = 128;
+      const lCtx = lblCanvas.getContext('2d')!;
+      lCtx.fillStyle = '#0f172a';
+      lCtx.fillRect(0, 0, 256, 128);
+      lCtx.fillStyle = st.colorText;
+      lCtx.font = 'bold 34px system-ui, sans-serif';
+      lCtx.textAlign = 'center';
+      lCtx.fillText(st.label, 128, 52);
+      lCtx.fillStyle = '#cbd5e1';
+      lCtx.font = '24px system-ui, sans-serif';
+      lCtx.fillText('ON / OFF', 128, 98);
+
+      const lblTex = new THREE.CanvasTexture(lblCanvas);
+      lblTex.colorSpace = THREE.SRGBColorSpace;
+      const lblMesh = new THREE.Mesh(
+        new THREE.PlaneGeometry(0.5, 0.2),
+        new THREE.MeshBasicMaterial({ map: lblTex })
+      );
+      lblMesh.position.set(st.x, -0.06, 0.20);
+      rackGroup.add(lblMesh);
+
+      // Push button
+      const button = new THREE.Mesh(
+        new THREE.CylinderGeometry(0.08, 0.08, 0.06, 16),
+        new THREE.MeshStandardMaterial({ color: 0x1e293b, metalness: 0.8, roughness: 0.2 })
+      );
+      button.rotateX(Math.PI / 2);
+      button.position.set(st.x, -0.22, 0.20);
+      rackGroup.add(button);
+
+      // Indicator LED jewel
+      const ledJewel = new THREE.Mesh(
+        new THREE.SphereGeometry(0.045, 12, 12),
+        st.ledMat
+      );
+      ledJewel.position.set(st.x, -0.22, 0.23);
+      rackGroup.add(ledJewel);
+    });
+
+    this.scene.add(rackGroup);
+  }
+
+  public setStageLights(on: boolean): void {
+    this.stageLightsManualOn = on;
+    if (this.switchLightLedMat) {
+      this.switchLightLedMat.color.setHex(on ? 0x00ff88 : 0xef4444);
+      this.switchLightLedMat.emissive.setHex(on ? 0x00e676 : 0xb91c1c);
+      this.switchLightLedMat.emissiveIntensity = on ? 2.2 : 0.8;
+    }
+  }
+
+  public setStageScreens(on: boolean): void {
+    this.stageScreensManualOn = on;
+    if (this.switchScreenLedMat) {
+      this.switchScreenLedMat.color.setHex(on ? 0x00d4ff : 0x475569);
+      this.switchScreenLedMat.emissive.setHex(on ? 0x00b0ff : 0x1e293b);
+      this.switchScreenLedMat.emissiveIntensity = on ? 2.2 : 0.2;
+    }
+    if (this.mainLedScreenMesh) this.mainLedScreenMesh.visible = on;
+    if (this.jumbotronMeshLeft) this.jumbotronMeshLeft.visible = on;
+    if (this.jumbotronMeshRight) this.jumbotronMeshRight.visible = on;
+  }
+
+  public setGifScreenActive(on: boolean, isRhythmicPreview = false): void {
+    this.gifScreenManualActive = on;
+    this.isGifRhythmicFadeActive = isRhythmicPreview;
+    if (this.switchGifLedMat) {
+      this.switchGifLedMat.color.setHex(on ? 0xe879f9 : 0x475569);
+      this.switchGifLedMat.emissive.setHex(on ? 0xd946ef : 0x1e293b);
+      this.switchGifLedMat.emissiveIntensity = on ? 2.4 : 0.2;
+    }
+    if (on) {
+      this.activateCustomMediaOnScreen();
+    } else {
+      this.resetScreenToDefault();
+    }
   }
 
   // --- Front Architectural Wall & Facade for Movistar Arena ---
@@ -2168,14 +2377,49 @@ export class VenueScene {
       m.emissiveIntensity = isBlackout ? 0.0 : 2.0;
     });
 
-    // Stage LED Screens - Vanish completely during blackout
-    if (this.mainLedScreenMesh) this.mainLedScreenMesh.visible = !isBlackout;
-    if (this.jumbotronMeshLeft) this.jumbotronMeshLeft.visible = !isBlackout;
-    if (this.jumbotronMeshRight) this.jumbotronMeshRight.visible = !isBlackout;
+    // Stage LED Screens - Controlled separately via switch, extinguished during blackout
+    const screensVisible = !isBlackout && this.stageScreensManualOn;
+    if (this.mainLedScreenMesh) this.mainLedScreenMesh.visible = screensVisible;
+    if (this.jumbotronMeshLeft) this.jumbotronMeshLeft.visible = screensVisible;
+    if (this.jumbotronMeshRight) this.jumbotronMeshRight.visible = screensVisible;
+
+    // Rhythmic GIF transition with instrumental beat & fundido negro (black cuts)
+    if (this.isGifRhythmicFadeActive && screensVisible && this.mainLedScreenMesh) {
+      // Beat period synced to 124 BPM (~0.484s per beat, 1.93s per 4-beat bar)
+      const beatPeriod = 1.935;
+      const barPhase = (time % beatPeriod) / beatPeriod; // 0.0 to 1.0
+
+      // Fundido a negro (black cut) during beat accents (first 18% of bar and on beat 3)
+      const isBlackoutCut = barPhase < 0.18 || (barPhase > 0.48 && barPhase < 0.62) || (audioBass > 0.88 && barPhase > 0.85);
+
+      const screenMat = this.mainLedScreenMesh.material as THREE.MeshBasicMaterial;
+      if (screenMat) {
+        if (isBlackoutCut) {
+          screenMat.color.setHex(0x000000);
+          screenMat.map = null;
+          screenMat.needsUpdate = true;
+        } else {
+          // Transition between custom GIF/media and synthesizer visualizer
+          const showGifPhase = barPhase < 0.75;
+          if (showGifPhase && this.customTexture) {
+            screenMat.map = this.customTexture;
+            screenMat.color.setHex(0xffffff);
+            screenMat.needsUpdate = true;
+          } else {
+            screenMat.map = this.jumbotronController.texture;
+            screenMat.color.setHex(0xffffff);
+            screenMat.needsUpdate = true;
+          }
+        }
+      }
+    }
+
+    // Stage Lights: extinguished completely when venue is empty OR when manually switched off OR blackout
+    const stageLightsActive = !isBlackout && this.stageLightsManualOn && !this.isVenueEmpty;
 
     // Stage Wash Lights & Foyer Lights
     this.stageWashLights.forEach((wash) => {
-      wash.intensity = isBlackout ? 0.0 : (isConcertPlaying ? 2.2 + audioBass * 1.5 : 0.4);
+      wash.intensity = stageLightsActive ? (isConcertPlaying ? 2.2 + audioBass * 1.5 : 0.8) : 0.0;
     });
     this.foyerLights.forEach((fl) => {
       fl.intensity = isBlackout ? 0.0 : 1.8;
@@ -2184,13 +2428,13 @@ export class VenueScene {
     // 3. Architectural Internal Lighting Dynamics
     this.houseLights.forEach((hl) => {
       if (isBlackout) {
-        // Complete blackout of stage and venue lights
         hl.intensity = 0.0;
+      } else if (this.isVenueEmpty && !this.stageLightsManualOn) {
+        // Atmospheric dimmed lighting when venue empty and stage lights switched off
+        hl.intensity = 0.25;
       } else if (isConcertPlaying) {
-        // Gentle show atmosphere
         hl.intensity = 0.75 + audioBass * 0.35;
       } else {
-        // Full house lights before and after show
         hl.intensity = 2.2;
       }
     });
@@ -2199,6 +2443,8 @@ export class VenueScene {
     this.tieredRakingLights.forEach((spot) => {
       if (isBlackout) {
         spot.intensity = 0.0;
+      } else if (this.isVenueEmpty && !this.stageLightsManualOn) {
+        spot.intensity = 0.3;
       } else if (isConcertPlaying) {
         spot.intensity = 0.9 + audioBass * 0.5;
       } else {
@@ -2209,6 +2455,8 @@ export class VenueScene {
     this.stepLedMaterials.forEach((mat) => {
       if (isBlackout) {
         mat.emissiveIntensity = 0.0;
+      } else if (this.isVenueEmpty && !this.stageLightsManualOn) {
+        mat.emissiveIntensity = 0.6;
       } else if (isConcertPlaying) {
         mat.emissiveIntensity = 1.6 + audioTreble * 0.8;
       } else {
@@ -2216,9 +2464,9 @@ export class VenueScene {
       }
     });
 
-    // 4. Dynamic Moving Stage Spotlights
+    // 4. Dynamic Moving Stage Spotlights (Off when venue empty or manually switched off)
     this.movingSpots.forEach((spotObj, idx) => {
-      if (isBlackout) {
+      if (!stageLightsActive) {
         spotObj.light.intensity = 0;
         (spotObj.cone.material as THREE.MeshBasicMaterial).opacity = 0;
         return;
@@ -2254,9 +2502,9 @@ export class VenueScene {
       spotObj.cone.lookAt(spotObj.target.position);
     });
 
-    // 5. Laser Beams
+    // 5. Laser Beams (Off when venue empty or manually switched off)
     if (this.laserLines) {
-      if (isBlackout || !isConcertPlaying) {
+      if (!stageLightsActive || !isConcertPlaying) {
         (this.laserLines.material as THREE.LineBasicMaterial).opacity = 0.0;
       } else {
         (this.laserLines.material as THREE.LineBasicMaterial).opacity = 0.6 + audioTreble * 0.4;
@@ -2292,36 +2540,46 @@ export class VenueScene {
         this.audienceMesh.getMatrixAt(i, this.dummy.matrix);
         this.dummy.matrix.decompose(this.dummy.position, this.dummy.quaternion, this.dummy.scale);
 
-        // Center walkway lane between -1.6m and +1.6m to guarantee zero side-wall collisions
-        const centerLaneX = ((i % 11) - 5) * 0.3; // -1.5m to +1.5m
+        // Center aisle lane (-0.55m to +0.55m)
+        const centerLaneX = ((i % 9) - 4) * 0.12; // Strictly centered aisle
         let targetX = centerLaneX;
         let targetZ = -4.73; // Center entrance gates
 
-        if (this.dummy.position.z < -22.0) {
-          // In the arena: move towards the central concourse opening
-          targetX = THREE.MathUtils.lerp(this.dummy.position.x, centerLaneX, 0.45);
+        const isGroundFloor = Math.abs(orig.x) < 15.0 && orig.z < -22.0;
+
+        if (isGroundFloor && Math.abs(this.dummy.position.x) > 0.65 && this.dummy.position.z < -22.0) {
+          // 1. First move laterally along their row aisle toward the central aisle
+          targetX = 0.0;
+          targetZ = this.dummy.position.z;
+        } else if (this.dummy.position.z < -22.0) {
+          // 2. Once in the central aisle: advance straight along the center walkway
+          targetX = centerLaneX;
           targetZ = -20.0;
         } else if (this.dummy.position.z < -4.73) {
-          // Inside entrance corridor: stay strictly centered towards the center doors
+          // 3. Concourse corridor: stay strictly centered toward the center entrance doors
           targetX = centerLaneX;
           targetZ = -4.73;
         } else {
-          // Outside through the center doors: disperse forward onto Calle Humboldt plaza
-          targetX = centerLaneX * 1.8;
+          // 4. Exiting onto Calle Humboldt plaza
+          targetX = centerLaneX * 1.5;
           targetZ = 4.0;
         }
 
         const moveTarget = new THREE.Vector3(targetX, 0.2, targetZ);
         const dir = new THREE.Vector3().subVectors(moveTarget, this.dummy.position);
-        const distToDoor = Math.hypot(this.dummy.position.x - centerLaneX, this.dummy.position.z - (-4.73));
         dir.normalize();
 
         // Controlled walking speed down the central exit
         const speed = 1.9 + (i % 7) * 0.22;
         this.dummy.position.addScaledVector(dir, delta * speed);
-        // Firmly clamp X within the safe central corridor whenever passing through the entrance (-22.0 to 2.0)
-        if (this.dummy.position.z >= -20.0 && this.dummy.position.z <= 2.0) {
-          this.dummy.position.x = THREE.MathUtils.clamp(this.dummy.position.x, -1.8, 1.8);
+
+        // Firmly keep ground floor & concourse spectators inside the central aisle
+        if (this.dummy.position.z >= -66.0 && this.dummy.position.z <= 2.0) {
+          if (isGroundFloor && Math.abs(this.dummy.position.x) <= 0.85) {
+            this.dummy.position.x = THREE.MathUtils.clamp(this.dummy.position.x, -0.65, 0.65);
+          } else if (this.dummy.position.z >= -22.0) {
+            this.dummy.position.x = THREE.MathUtils.clamp(this.dummy.position.x, -1.2, 1.2);
+          }
         }
         this.dummy.position.y = 0.2 + Math.abs(Math.sin(time * 6 + i)) * 0.07;
         this.dummy.lookAt(targetX, this.dummy.position.y, targetZ);

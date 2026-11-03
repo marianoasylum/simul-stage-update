@@ -203,6 +203,26 @@ class SoundEngine {
     osc.stop(now + 0.06);
   }
 
+  public playSwitchClick(): void {
+    if (!this.ctx || !this.sfxGain) return;
+    const now = this.ctx.currentTime;
+    const osc = this.ctx.createOscillator();
+    const gain = this.ctx.createGain();
+
+    osc.type = 'triangle';
+    osc.frequency.setValueAtTime(420, now);
+    osc.frequency.exponentialRampToValueAtTime(110, now + 0.045);
+
+    gain.gain.setValueAtTime(0.65, now);
+    gain.gain.exponentialRampToValueAtTime(0.01, now + 0.05);
+
+    osc.connect(gain);
+    gain.connect(this.sfxGain);
+
+    osc.start(now);
+    osc.stop(now + 0.055);
+  }
+
   public playJump(): void {
     if (!this.ctx || !this.sfxGain) return;
     const now = this.ctx.currentTime;

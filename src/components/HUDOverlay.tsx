@@ -23,6 +23,9 @@ import {
   X,
   Sparkles,
   CalendarX,
+  Sliders,
+  Tv,
+  Sun,
 } from 'lucide-react';
 import { AppState } from '../types';
 
@@ -41,6 +44,9 @@ interface Props {
   onAttachMedia?: (file: File) => void;
   onToggleCustomMediaNow?: () => void;
   onClearCustomMedia?: () => void;
+  onToggleStageLights: () => void;
+  onToggleStageScreens: () => void;
+  onToggleGifScreen: () => void;
 }
 
 export const HUDOverlay: React.FC<Props> = ({
@@ -57,6 +63,9 @@ export const HUDOverlay: React.FC<Props> = ({
   onAttachMedia,
   onToggleCustomMediaNow,
   onClearCustomMedia,
+  onToggleStageLights,
+  onToggleStageScreens,
+  onToggleGifScreen,
 }) => {
   const [dockCollapsed, setDockCollapsed] = useState(false);
   const fileInputRef = useRef<HTMLInputElement | null>(null);
@@ -185,7 +194,7 @@ export const HUDOverlay: React.FC<Props> = ({
 
       {/* 2. COMPACT SIDE NOTIFICATIONS */}
       <div className="fixed top-14 sm:top-16 right-2.5 sm:right-5 w-60 sm:w-72 flex flex-col items-end gap-1.5 z-40 pointer-events-auto">
-        {/* Near Seat Prompt */}
+        {/* Near Seat Prompt (Assigned seat during event, or ANY seat when venue is empty) */}
         {isNearSeat && !appState.isSeated && (
           <div className="w-full p-2 sm:p-2.5 rounded-xl bg-cyan-950/90 border border-cyan-400/80 shadow-lg text-white backdrop-blur-md flex items-center justify-between gap-2 transition-all">
             <div className="flex items-center gap-1.5 min-w-0">
@@ -193,9 +202,13 @@ export const HUDOverlay: React.FC<Props> = ({
                 <Armchair className="w-3.5 h-3.5" />
               </div>
               <div className="min-w-0">
-                <h4 className="font-bold text-[11px] text-white truncate">¡Llegaste a tu Asiento!</h4>
+                <h4 className="font-bold text-[11px] text-white truncate">
+                  {appState.isVenueEmpty ? 'Asiento del Recinto' : '¡Llegaste a tu Asiento!'}
+                </h4>
                 <p className="text-[9px] text-cyan-200/90 truncate font-mono">
-                  {appState.ticket.sectionCode} • Fila {appState.ticket.row} • A {appState.ticket.seat}
+                  {appState.isVenueEmpty
+                    ? (appState.currentSeatName || 'Asiento disponible')
+                    : `${appState.ticket.sectionCode} • Fila ${appState.ticket.row} • A ${appState.ticket.seat}`}
                 </p>
               </div>
             </div>
@@ -206,6 +219,88 @@ export const HUDOverlay: React.FC<Props> = ({
             >
               Sentarse
             </button>
+          </div>
+        )}
+
+        {/* Stage Control Console Switchboard Prompt (Located under main LED screen) */}
+        {appState.isNearStagePanel && (
+          <div className="w-full p-2.5 sm:p-3 rounded-2xl bg-slate-950/95 border-2 border-cyan-400 text-white shadow-2xl backdrop-blur-xl transition-all">
+            <div className="flex items-center justify-between border-b border-slate-800 pb-1.5 mb-2">
+              <div className="flex items-center gap-1.5">
+                <div className="p-1 rounded-md bg-cyan-500/20 text-cyan-400">
+                  <Sliders className="w-3.5 h-3.5" />
+                </div>
+                <div>
+                  <h4 className="font-extrabold text-[11px] text-cyan-300 tracking-wide uppercase">Tablero Escenario</h4>
+                  <p className="text-[8px] text-slate-400">Bajo Pantalla (3 Interruptores)</p>
+                </div>
+              </div>
+              <span className="text-[8px] font-mono px-1.5 py-0.5 rounded-full bg-cyan-500/10 text-cyan-300 border border-cyan-500/30">
+                CONSOLA
+              </span>
+            </div>
+
+            <div className="grid grid-cols-3 gap-1.5">
+              {/* Switch 1: Stage Lights */}
+              <button
+                type="button"
+                onClick={onToggleStageLights}
+                className={`flex flex-col items-center justify-center p-1.5 rounded-xl border text-center transition-all cursor-pointer ${
+                  appState.stageLightsOn
+                    ? 'bg-amber-500/25 border-amber-400 text-amber-200 shadow-md shadow-amber-500/20'
+                    : 'bg-slate-900 border-slate-700 text-slate-500 hover:text-slate-300'
+                }`}
+                title="Encender o apagar las luces del escenario y reflectores"
+              >
+                <Sun className={`w-3.5 h-3.5 mb-0.5 ${appState.stageLightsOn ? 'text-amber-400 animate-pulse' : 'text-slate-500'}`} />
+                <span className="text-[9px] font-bold">Luces</span>
+                <span className="text-[7px] font-mono mt-0.5 uppercase">
+                  {appState.stageLightsOn ? 'ON' : 'OFF'}
+                </span>
+              </button>
+
+              {/* Switch 2: Arena Screens */}
+              <button
+                type="button"
+                onClick={onToggleStageScreens}
+                className={`flex flex-col items-center justify-center p-1.5 rounded-xl border text-center transition-all cursor-pointer ${
+                  appState.stageScreensOn
+                    ? 'bg-cyan-500/25 border-cyan-400 text-cyan-200 shadow-md shadow-cyan-500/20'
+                    : 'bg-slate-900 border-slate-700 text-slate-500 hover:text-slate-300'
+                }`}
+                title="Encender o apagar las pantallas LED del recinto"
+              >
+                <Tv className={`w-3.5 h-3.5 mb-0.5 ${appState.stageScreensOn ? 'text-cyan-400' : 'text-slate-500'}`} />
+                <span className="text-[9px] font-bold">Pantallas</span>
+                <span className="text-[7px] font-mono mt-0.5 uppercase">
+                  {appState.stageScreensOn ? 'ON' : 'OFF'}
+                </span>
+              </button>
+
+              {/* Switch 3: Custom GIF Screen */}
+              <button
+                type="button"
+                onClick={onToggleGifScreen}
+                className={`flex flex-col items-center justify-center p-1.5 rounded-xl border text-center transition-all cursor-pointer ${
+                  appState.gifScreenActive
+                    ? 'bg-purple-500/30 border-purple-400 text-purple-200 shadow-md shadow-purple-500/20'
+                    : 'bg-slate-900 border-slate-700 text-slate-500 hover:text-slate-300'
+                }`}
+                title="Encender transmisión del GIF con fundido al ritmo de la música"
+              >
+                <ImageIcon className={`w-3.5 h-3.5 mb-0.5 ${appState.gifScreenActive ? 'text-purple-400 animate-pulse' : 'text-slate-500'}`} />
+                <span className="text-[9px] font-bold">GIF Escena</span>
+                <span className="text-[7px] font-mono mt-0.5 uppercase">
+                  {appState.gifScreenActive ? 'ACTIVO' : 'INACTIVO'}
+                </span>
+              </button>
+            </div>
+
+            <div className="mt-1.5 text-[8px] text-slate-400 text-center">
+              {appState.phase !== 'CONCERT_PLAYING' && appState.phase !== 'CONCERT_BLACKOUT' && appState.phase !== 'CONCERT_FINALE'
+                ? `Preview GIF: ${appState.gifPreviewsUsed}/3 usos (al ritmo del beat)`
+                : 'Control independiente en vivo durante el concierto'}
+            </div>
           </div>
         )}
 
@@ -511,6 +606,30 @@ export const HUDOverlay: React.FC<Props> = ({
                 <ImageIcon className="w-4 h-4 text-cyan-400" />
                 <span>{appState.customMediaName ? 'Cambiar GIF' : 'GIF Pantalla'}</span>
               </button>
+
+              {/* Pre-concert GIF Preview Button with Rhythmic Blackout Cuts (up to 3 uses) */}
+              {appState.customMediaUrl && !isConcertPhase && appState.phase !== 'EXITING_VENUE' && (
+                <button
+                  type="button"
+                  onClick={onToggleGifScreen}
+                  disabled={appState.gifPreviewsUsed >= 3 && !appState.gifScreenActive}
+                  className={`px-3 py-2 rounded-xl text-xs font-bold flex items-center gap-1.5 cursor-pointer transition-all ${
+                    appState.gifScreenActive
+                      ? 'bg-purple-600 text-white shadow-lg shadow-purple-600/30 animate-pulse'
+                      : appState.gifPreviewsUsed >= 3
+                      ? 'bg-slate-800/60 border border-slate-700 text-slate-500 cursor-not-allowed'
+                      : 'bg-purple-950/80 hover:bg-purple-900 border border-purple-500/50 text-purple-300'
+                  }`}
+                  title="Previsualizar el GIF en pantalla con cambios al ritmo de la música y fundido negro"
+                >
+                  <Sparkles className="w-4 h-4 text-purple-400" />
+                  <span>
+                    {appState.gifScreenActive
+                      ? 'Detener Preview'
+                      : `Preview GIF (${3 - appState.gifPreviewsUsed}/3)`}
+                  </span>
+                </button>
+              )}
             </div>
 
             {/* Right: Show controls */}
