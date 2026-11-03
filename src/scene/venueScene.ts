@@ -40,9 +40,16 @@ export class VenueScene {
 
   // Lighting rigs
   public outdoorKeyLight: THREE.DirectionalLight;
+  public hemiLight: THREE.HemisphereLight;
   public arenaAmbientLight: THREE.AmbientLight;
+  public envTexture: THREE.Texture | null = null;
   public houseLights: THREE.PointLight[] = [];
   public foyerLights: THREE.PointLight[] = [];
+  public streetLights: THREE.PointLight[] = [];
+  public facadeLights: (THREE.SpotLight | THREE.PointLight)[] = [];
+  public houseFixtureMaterials: THREE.MeshStandardMaterial[] = [];
+  public exteriorLampMaterials: THREE.MeshStandardMaterial[] = [];
+  public neonMaterials: THREE.MeshStandardMaterial[] = [];
   public stepLedMaterials: THREE.MeshStandardMaterial[] = [];
   public tieredRakingLights: THREE.SpotLight[] = [];
   public movingSpots: {
@@ -126,8 +133,9 @@ export class VenueScene {
       0.1,
       350
     );
-    // Initial camera position outside on Calle Humboldt
-    this.camera.position.set(0.0, 1.65, 20.0);
+    // Initial camera position outside on Calle Humboldt facing the vehicle and arena
+    this.camera.position.set(2.5, 1.65, 18.0);
+    this.camera.rotation.set(0, 0, 0);
 
     // 2. High Performance WebGL Renderer
     this.renderer = new THREE.WebGLRenderer({
@@ -144,7 +152,8 @@ export class VenueScene {
 
     // Studio Environment reflection
     const pmremGenerator = new THREE.PMREMGenerator(this.renderer);
-    this.scene.environment = pmremGenerator.fromScene(new RoomEnvironment(), 0.05).texture;
+    this.envTexture = pmremGenerator.fromScene(new RoomEnvironment(), 0.05).texture;
+    this.scene.environment = this.envTexture;
     pmremGenerator.dispose();
 
     // 3. Outdoor & Venue Ambient Lighting
@@ -152,8 +161,8 @@ export class VenueScene {
     this.outdoorKeyLight.position.set(20, 45, 35);
     this.scene.add(this.outdoorKeyLight);
 
-    const hemiLight = new THREE.HemisphereLight(0x35405a, 0x141822, 0.9);
-    this.scene.add(hemiLight);
+    this.hemiLight = new THREE.HemisphereLight(0x35405a, 0x141822, 0.9);
+    this.scene.add(this.hemiLight);
 
     // Interior Ambient Light - balanced to allow crisp shadow contrast on stepped tiers
     this.arenaAmbientLight = new THREE.AmbientLight(0x283244, 0.7);
@@ -285,13 +294,15 @@ export class VenueScene {
 
               // Movistar Glowing Cyan-Blue Signage
               if (matName.includes('Movistar')) {
-                mesh.material = new THREE.MeshStandardMaterial({
+                const movMat = new THREE.MeshStandardMaterial({
                   color: 0x0088ff,
                   emissive: 0x00a9e0,
                   emissiveIntensity: 2.8,
                   roughness: 0.2,
                   metalness: 0.8,
                 });
+                mesh.material = movMat;
+                this.neonMaterials.push(movMat);
               }
 
               // Stage LED Display Screen (Object_993 / pantalla)
@@ -420,6 +431,19 @@ export class VenueScene {
             const z = -46.0 - (r - 1) * 2.2;
             for (let s = 1; s <= 20; s++) {
               const x = (s - 10.5) * 1.1;
+              seatTransforms.push({
+                pos: new THREE.Vector3(x, 0.2, z),
+                rotY: 0, // facing -Z (stage)
+              });
+            }
+          }
+
+          // A2. Planta Baja Trasera (8 rows x 18 seats = 144 seats, Z = -26 to -41, with center aisle)
+          for (let r = 1; r <= 8; r++) {
+            const z = -26.0 - (r - 1) * 2.0;
+            for (let s = 1; s <= 18; s++) {
+              const x = (s - 9.5) * 1.08;
+              if (Math.abs(x) < 1.1) continue; // Central walkway
               seatTransforms.push({
                 pos: new THREE.Vector3(x, 0.2, z),
                 rotY: 0, // facing -Z (stage)
@@ -639,6 +663,7 @@ export class VenueScene {
         emissive: 0xfff0cc,
         emissiveIntensity: 2.2,
       });
+      this.exteriorLampMaterials.push(lampHeadMat);
       const lampHead = new THREE.Mesh(lampHeadGeo, lampHeadMat);
       lampHead.position.set(lx, 7.5, lz);
       streetGroup.add(lampHead);
@@ -647,6 +672,7 @@ export class VenueScene {
       const lampLight = new THREE.PointLight(0xfff0cc, 1.8, 26, 1.6);
       lampLight.position.set(lx, 7.2, lz);
       streetGroup.add(lampLight);
+      this.streetLights.push(lampLight);
     });
 
     // 6. Queue Guiding Barriers (Vallas de acceso)
@@ -658,22 +684,7 @@ export class VenueScene {
       streetGroup.add(barrier);
     }
 
-    // 7. Street Name Plaque & Address Marker ("Humboldt 450")
-    const signTex = createNeonSignTexture('HUMBOLDT 450', 'MOVISTAR ARENA • VILLA CRESPO', '#00e5ff');
-    const streetSign = new THREE.Mesh(
-      new THREE.PlaneGeometry(5, 1.4),
-      new THREE.MeshBasicMaterial({ map: signTex, transparent: true })
-    );
-    streetSign.position.set(0, 3.5, 15);
-    streetGroup.add(streetSign);
-
-    // 8. Curbside Tour Bus & Production Sedans
-    const busGeo = new THREE.BoxGeometry(3.2, 3.4, 11);
-    const busMat = new THREE.MeshStandardMaterial({ color: 0x111622, metalness: 0.7, roughness: 0.3 });
-    const vipBus = new THREE.Mesh(busGeo, busMat);
-    vipBus.position.set(16, 1.7, 18);
-    streetGroup.add(vipBus);
-
+    // Note: Street sign and unneeded outdoor side block removed per specification
     this.scene.add(streetGroup);
   }
 
@@ -776,6 +787,7 @@ export class VenueScene {
         emissive: dp.color,
         emissiveIntensity: 2.0,
       });
+      this.houseFixtureMaterials.push(fixtureMat);
       const fixture = new THREE.Mesh(fixtureGeo, fixtureMat);
       fixture.position.set(dp.x, dp.y + 0.2, dp.z);
       this.scene.add(fixture);
@@ -1037,6 +1049,7 @@ export class VenueScene {
       emissive: 0x00bfff,
       emissiveIntensity: 2.5,
     });
+    this.neonMaterials.push(neonCyanMat);
 
     const zFront = -4.73; // Alignment with entrance gates
     const wallHeight = 22.0;
@@ -1097,6 +1110,7 @@ export class VenueScene {
       const downlight = new THREE.PointLight(0xbbeeff, 1.2, 8, 1.2);
       downlight.position.set(x, 4.1, zFront + 1.5);
       facadeGroup.add(downlight);
+      this.facadeLights.push(downlight);
     }
 
     // 7. Roof Parapet & Top Architectural Fascia
@@ -1143,13 +1157,54 @@ export class VenueScene {
     tickerMesh.position.set(0, 6.2, zFront + 0.65);
     facadeGroup.add(tickerMesh);
 
-    // 11. Concourse Entrance Ceiling (giving full indoor feel upon crossing the threshold)
-    const ceilingGeo = new THREE.PlaneGeometry(96, 12);
-    ceilingGeo.rotateX(Math.PI / 2);
+    // Metallic composite architectural material for enclosure walls and bulkheads
+    const flankWallMat = new THREE.MeshStandardMaterial({
+      color: 0x1b2330,
+      metalness: 0.85,
+      roughness: 0.3,
+    });
+
+    // 11. Concourse Entrance Ceiling (TRIMMED IN CORNERS TO PREVENT OBSTRUCTING SEATS)
+    // A. Doorway Vestibule Ceiling (covers only the immediate entrance area: Z = -4.73 to -7.0, X = -18.7 to +18.7)
+    const vestibuleCeilingGeo = new THREE.PlaneGeometry(37.4, 2.27);
+    vestibuleCeilingGeo.rotateX(Math.PI / 2);
     const ceilingMat = new THREE.MeshStandardMaterial({ color: 0x141820, roughness: 0.8 });
-    const ceiling = new THREE.Mesh(ceilingGeo, ceilingMat);
-    ceiling.position.set(0, 4.4, zFront - 6.0);
-    facadeGroup.add(ceiling);
+    const vestibuleCeiling = new THREE.Mesh(vestibuleCeilingGeo, ceilingMat);
+    vestibuleCeiling.position.set(0, 4.4, zFront - 1.135);
+    facadeGroup.add(vestibuleCeiling);
+
+    // B. Central Corridor Ceiling (Z = -7.0 to -22.0, width 20.0m: X = -10.0 to +10.0, height 5.2m)
+    // Corners (|X| > 10.0m) are TRIMMED OUT completely, leaving the stands & seats open to the arena ceiling without obstruction!
+    const centralCeilingGeo = new THREE.PlaneGeometry(20.0, 15.0);
+    centralCeilingGeo.rotateX(Math.PI / 2);
+    const centralCeiling = new THREE.Mesh(centralCeilingGeo, ceilingMat);
+    centralCeiling.position.set(0, 5.2, -14.5);
+    facadeGroup.add(centralCeiling);
+
+    // C. Vertical Bulkhead Transitions & Filler Walls (Covering empty spaces caused by trimming):
+    // Bulkhead soffit connector at Z = -7.0 between Y = 4.4 and Y = 5.2 across the central walkway
+    const bulkheadCenterGeo = new THREE.BoxGeometry(20.0, 0.8, 0.3);
+    const bulkheadCenter = new THREE.Mesh(bulkheadCenterGeo, flankWallMat);
+    bulkheadCenter.position.set(0, 4.8, -7.0);
+    facadeGroup.add(bulkheadCenter);
+
+    // Bulkhead partition walls at Z = -7.0 above vestibule corners (X = -18.7 to -10, and X = +10 to +18.7, Y = 0 to 4.4m)
+    // Neatly closes the entrance vestibule edges before the stands begin
+    [-14.35, 14.35].forEach((bx) => {
+      const cornerWallGeo = new THREE.BoxGeometry(8.7, 4.4, 0.35);
+      const cornerWall = new THREE.Mesh(cornerWallGeo, flankWallMat);
+      cornerWall.position.set(bx, 2.2, -7.0);
+      facadeGroup.add(cornerWall);
+    });
+
+    // Rear acoustic filler back walls behind the Cabecera stands (Z = -4.9, X = -28.4 to -18.7 and +18.7 to +28.4)
+    // Covers the empty rear void behind the top seating rows up to Y = 10.0m!
+    [-23.55, 23.55].forEach((rx) => {
+      const rearCornerBackWallGeo = new THREE.BoxGeometry(9.7, 10.0, 0.45);
+      const rearCornerBackWall = new THREE.Mesh(rearCornerBackWallGeo, flankWallMat);
+      rearCornerBackWall.position.set(rx, 5.0, -4.9);
+      facadeGroup.add(rearCornerBackWall);
+    });
 
     // 12. Architectural Facade Ground Uplights
     [-30, -10, 10, 30].forEach((ux) => {
@@ -1158,16 +1213,12 @@ export class VenueScene {
       uplight.target.position.set(ux, 15, zFront);
       facadeGroup.add(uplight);
       facadeGroup.add(uplight.target);
+      this.facadeLights.push(uplight);
     });
 
     // 13. Exterior Entrance Flank Security Walls (Z = -4.73 to Z = 5.0, at X = -19.0 and X = +19.0)
     // Prevents walking off the entrance plaza into void and grounds the access perimeter
     const flankWallGeo = new THREE.BoxGeometry(0.5, 3.6, 9.73);
-    const flankWallMat = new THREE.MeshStandardMaterial({
-      color: 0x1b2330,
-      metalness: 0.85,
-      roughness: 0.3,
-    });
     const leftFlankWall = new THREE.Mesh(flankWallGeo, flankWallMat);
     leftFlankWall.position.set(-19.0, 1.8, 0.135);
     leftFlankWall.castShadow = true;
@@ -1188,14 +1239,14 @@ export class VenueScene {
     rightFlankLed.position.set(19.0, 3.62, 0.135);
     facadeGroup.add(leftFlankLed, rightFlankLed);
 
-    // 14. Interior Hallway Side Enclosure Walls (Z = -4.73 to Z = -22.0, at X = -28.4 and X = +28.4)
-    const insideFlankGeo = new THREE.BoxGeometry(0.8, 12.0, 17.27);
+    // 14. Full-Height Interior Hallway Side Enclosure Walls (Z = -4.73 to Z = -22.0, at X = -28.4 and X = +28.4, height 18.0m)
+    const insideFlankGeo = new THREE.BoxGeometry(0.8, 18.0, 17.27);
     const leftInsideWall = new THREE.Mesh(insideFlankGeo, flankWallMat);
-    leftInsideWall.position.set(-28.4, 6.0, -13.365);
+    leftInsideWall.position.set(-28.4, 9.0, -13.365);
     leftInsideWall.castShadow = true;
     leftInsideWall.receiveShadow = true;
     const rightInsideWall = new THREE.Mesh(insideFlankGeo, flankWallMat);
-    rightInsideWall.position.set(28.4, 6.0, -13.365);
+    rightInsideWall.position.set(28.4, 9.0, -13.365);
     rightInsideWall.castShadow = true;
     rightInsideWall.receiveShadow = true;
     facadeGroup.add(leftInsideWall, rightInsideWall);
@@ -1352,13 +1403,75 @@ export class VenueScene {
     entranceThreshold.receiveShadow = true;
     standsGroup.add(entranceThreshold);
 
-    // FOH / Soundboard Mixing Console Tower at Z = -38
-    const fohPlatform = new THREE.Mesh(
-      new THREE.BoxGeometry(6.5, 0.45, 4.0),
-      new THREE.MeshStandardMaterial({ color: 0x1e2433, roughness: 0.6 })
+    // --- 2c. NUEVO SECTOR: PLANTA BAJA TRASERA (Reemplaza al antiguo bloque central FOH) ---
+    // Floor boundary separating Planta Baja Trasera (Z = -22 to -43.5) from Campo Delantero (Z = -43.5 to -68)
+    const pbDividerMat = new THREE.MeshStandardMaterial({
+      color: 0x00f0ff,
+      emissive: 0x00bfff,
+      emissiveIntensity: 1.8,
+      roughness: 0.2,
+      metalness: 0.8,
+    });
+    this.neonMaterials.push(pbDividerMat);
+
+    // Glowing Cyan Sector Perimeter Line at Z = -43.5 across floor (with 5m center walkway opening)
+    [-8.5, 8.5].forEach((lx) => {
+      const lineMesh = new THREE.Mesh(new THREE.BoxGeometry(11.0, 0.04, 0.15), pbDividerMat);
+      lineMesh.position.set(lx, 0.22, -43.5);
+      standsGroup.add(lineMesh);
+    });
+
+    // Crowd-control Separation Barriers (Vallas divisorias de sector) at Z = -43.5
+    const sectorBarrierMat = new THREE.MeshStandardMaterial({ color: 0x334155, metalness: 0.9, roughness: 0.25 });
+    [-8.5, 8.5].forEach((bx) => {
+      const barrierMesh = new THREE.Mesh(new THREE.BoxGeometry(10.5, 1.1, 0.12), sectorBarrierMat);
+      barrierMesh.position.set(bx, 0.75, -43.5);
+      standsGroup.add(barrierMesh);
+    });
+
+    // Overhead Hanging Sector Signage Portal: "PLANTA BAJA TRASERA"
+    const pbSignCanvas = document.createElement('canvas');
+    pbSignCanvas.width = 1024;
+    pbSignCanvas.height = 256;
+    const pbCtx = pbSignCanvas.getContext('2d')!;
+    pbCtx.fillStyle = '#0b1120';
+    pbCtx.fillRect(0, 0, 1024, 256);
+    pbCtx.strokeStyle = '#00f0ff';
+    pbCtx.lineWidth = 8;
+    pbCtx.strokeRect(8, 8, 1008, 240);
+    pbCtx.fillStyle = '#00f0ff';
+    pbCtx.font = 'bold 64px system-ui, sans-serif';
+    pbCtx.textAlign = 'center';
+    pbCtx.fillText('SECTOR PLANTA BAJA TRASERA', 512, 110);
+    pbCtx.fillStyle = '#94a3b8';
+    pbCtx.font = '600 36px system-ui, sans-serif';
+    pbCtx.fillText('MOVISTAR ARENA • ACCESO PUERTAS 5 Y 6', 512, 185);
+
+    const pbSignTex = new THREE.CanvasTexture(pbSignCanvas);
+    pbSignTex.colorSpace = THREE.SRGBColorSpace;
+    const pbSignMesh = new THREE.Mesh(
+      new THREE.PlaneGeometry(12.0, 3.0),
+      new THREE.MeshBasicMaterial({ map: pbSignTex, transparent: true, side: THREE.DoubleSide })
     );
-    fohPlatform.position.set(0, 0.225, -38);
-    standsGroup.add(fohPlatform);
+    pbSignMesh.position.set(0, 5.8, -25.0);
+    standsGroup.add(pbSignMesh);
+
+    // Lateral Illuminated Sector Totems at sector entrance (X = +-13.5, Z = -26.0)
+    [-13.5, 13.5].forEach((tx) => {
+      const totemPole = new THREE.Mesh(
+        new THREE.BoxGeometry(0.5, 3.5, 0.5),
+        new THREE.MeshStandardMaterial({ color: 0x1e293b, metalness: 0.85, roughness: 0.3 })
+      );
+      totemPole.position.set(tx, 1.95, -26.0);
+      standsGroup.add(totemPole);
+
+      const totemHead = new THREE.Mesh(
+        new THREE.BoxGeometry(0.56, 0.4, 0.56),
+        pbDividerMat
+      );
+      totemHead.position.set(tx, 3.8, -26.0);
+      standsGroup.add(totemHead);
+    });
 
     // 3. Platea Baja (9 Stepped Rows, Rise = 0.58m, Run = 1.22m, X = +-16 to +-27)
     // Segments with gaps at Z = -33 and Z = -51 for 3 access stairways
@@ -1764,6 +1877,15 @@ export class VenueScene {
         y = 0.25;
         x = (ticket.seat - 10.5) * 1.1;
         break;
+      case 'PB_TRASERA': {
+        // Planta Baja Trasera (Z = -26 to -41, X = -10 to +10)
+        const rowIdx = Math.min(7, Math.max(0, ticket.row - 1));
+        z = -26.0 - rowIdx * 2.0;
+        y = 0.25;
+        const sideOffset = ticket.seat <= 9 ? -1 : 1;
+        x = sideOffset * (1.5 + (ticket.seat % 9) * 1.05);
+        break;
+      }
       case 'PLAT': {
         // Platea Baja (9 stepped rows, X = 16 to 27, step Y = 0.2 + (r+1) * 0.58)
         const rowIdx = Math.min(8, Math.max(0, ticket.row - 1));
@@ -1918,8 +2040,9 @@ export class VenueScene {
       { x: -39, z: 11.5, rotY: 0, color: 0x1e3a8a, type: 'sedan' }, // Deep Blue
       { x: -27, z: 11.5, rotY: 0, color: 0x991b1b, type: 'sedan' }, // Crimson Red
       { x: -14, z: 11.5, rotY: 0, color: 0x475569, type: 'suv' },   // Slate SUV
-      { x: 12, z: 11.5, rotY: 0, color: 0xf1f5f9, type: 'sedan' },  // Pearl White
-      { x: 25, z: 11.5, rotY: 0, color: 0x0284c7, type: 'sedan' },  // Movistar Blue
+      { x: 2.5, z: 11.5, rotY: 0, color: 0x0284c7, type: 'sedan' },  // Movistar Blue Sedan (Facing user upon spawn)
+      { x: 14, z: 11.5, rotY: 0, color: 0xf1f5f9, type: 'sedan' },  // Pearl White
+      { x: 26, z: 11.5, rotY: 0, color: 0xd97706, type: 'sedan' },  // Amber Sedan
       { x: 38, z: 11.5, rotY: 0, color: 0x18181b, type: 'suv' },    // Black SUV
       { x: 50, z: 11.5, rotY: 0, color: 0xeab308, type: 'taxi' },   // BA Yellow Taxi
 
@@ -2013,15 +2136,37 @@ export class VenueScene {
     // Pitch Black Sky & Atmosphere during blackout
     if (isBlackout) {
       this.scene.background = new THREE.Color(0x000000);
-      this.scene.fog = new THREE.FogExp2(0x000000, 0.025);
+      this.scene.fog = new THREE.FogExp2(0x000000, 0.04);
+      this.scene.environment = null;
     } else {
       this.scene.background = new THREE.Color(0x060912);
       this.scene.fog = new THREE.FogExp2(0x060912, 0.012);
+      this.scene.environment = this.envTexture;
     }
 
-    // Key & Ambient Lighting - Pitch dark on blackout
+    // Key, Hemispheric & Ambient Lighting - Pitch dark on blackout
     this.outdoorKeyLight.intensity = isBlackout ? 0.0 : 1.4;
+    this.hemiLight.intensity = isBlackout ? 0.0 : 0.9;
     this.arenaAmbientLight.intensity = isBlackout ? 0.0 : (isConcertPlaying ? 0.25 : 0.7);
+
+    // Exterior Street Lamps & Facade Uplights / Downlights
+    this.streetLights.forEach((l) => {
+      l.intensity = isBlackout ? 0.0 : 1.8;
+    });
+    this.facadeLights.forEach((l) => {
+      l.intensity = isBlackout ? 0.0 : 2.2;
+    });
+
+    // Emissive Fixtures & Neon Signage - Extinguished completely during blackout
+    this.exteriorLampMaterials.forEach((m) => {
+      m.emissiveIntensity = isBlackout ? 0.0 : 2.2;
+    });
+    this.neonMaterials.forEach((m) => {
+      m.emissiveIntensity = isBlackout ? 0.0 : 2.5;
+    });
+    this.houseFixtureMaterials.forEach((m) => {
+      m.emissiveIntensity = isBlackout ? 0.0 : 2.0;
+    });
 
     // Stage LED Screens - Vanish completely during blackout
     if (this.mainLedScreenMesh) this.mainLedScreenMesh.visible = !isBlackout;
@@ -2138,33 +2283,55 @@ export class VenueScene {
     this.audienceMesh.visible = true;
 
     const count = this.audienceMesh.count;
-    const exitTargetLeft = new THREE.Vector3(-14, 0.2, -4.73);
-    const exitTargetRight = new THREE.Vector3(14, 0.2, -4.73);
 
     for (let i = 0; i < count; i++) {
       const orig = this.audienceOriginalPos[i];
       if (!orig) continue;
 
       if (isExiting) {
-        const exitTarget = orig.x < 0 ? exitTargetLeft : exitTargetRight;
         this.audienceMesh.getMatrixAt(i, this.dummy.matrix);
         this.dummy.matrix.decompose(this.dummy.position, this.dummy.quaternion, this.dummy.scale);
 
-        const dir = new THREE.Vector3().subVectors(exitTarget, this.dummy.position);
-        const dist = dir.length();
+        // Center walkway lane between -1.6m and +1.6m to guarantee zero side-wall collisions
+        const centerLaneX = ((i % 11) - 5) * 0.3; // -1.5m to +1.5m
+        let targetX = centerLaneX;
+        let targetZ = -4.73; // Center entrance gates
+
+        if (this.dummy.position.z < -22.0) {
+          // In the arena: move towards the central concourse opening
+          targetX = THREE.MathUtils.lerp(this.dummy.position.x, centerLaneX, 0.45);
+          targetZ = -20.0;
+        } else if (this.dummy.position.z < -4.73) {
+          // Inside entrance corridor: stay strictly centered towards the center doors
+          targetX = centerLaneX;
+          targetZ = -4.73;
+        } else {
+          // Outside through the center doors: disperse forward onto Calle Humboldt plaza
+          targetX = centerLaneX * 1.8;
+          targetZ = 4.0;
+        }
+
+        const moveTarget = new THREE.Vector3(targetX, 0.2, targetZ);
+        const dir = new THREE.Vector3().subVectors(moveTarget, this.dummy.position);
+        const distToDoor = Math.hypot(this.dummy.position.x - centerLaneX, this.dummy.position.z - (-4.73));
         dir.normalize();
 
-        // Audience walks towards the exit gates
-        this.dummy.position.addScaledVector(dir, delta * (1.8 + (i % 5) * 0.25));
-        this.dummy.position.y = 0.2 + Math.abs(Math.sin(time * 6 + i)) * 0.08;
-        this.dummy.lookAt(exitTarget.x, this.dummy.position.y, exitTarget.z);
+        // Controlled walking speed down the central exit
+        const speed = 1.9 + (i % 7) * 0.22;
+        this.dummy.position.addScaledVector(dir, delta * speed);
+        // Firmly clamp X within the safe central corridor whenever passing through the entrance (-22.0 to 2.0)
+        if (this.dummy.position.z >= -20.0 && this.dummy.position.z <= 2.0) {
+          this.dummy.position.x = THREE.MathUtils.clamp(this.dummy.position.x, -1.8, 1.8);
+        }
+        this.dummy.position.y = 0.2 + Math.abs(Math.sin(time * 6 + i)) * 0.07;
+        this.dummy.lookAt(targetX, this.dummy.position.y, targetZ);
 
-        // Gradually shrink as they reach the exit portal (Z >= -6.0 or dist <= 2.5m)
-        if (dist <= 2.5 || this.dummy.position.z >= -5.2) {
-          this.dummy.scale.set(0.001, 0.001, 0.001);
+        // Gradually fade / scale out as they exit through the center doors onto the plaza
+        if (this.dummy.position.z >= -3.5) {
+          const fadeScale = Math.max(0.001, (1.0 - (this.dummy.position.z - (-3.5)) / 4.0));
+          this.dummy.scale.set(fadeScale, fadeScale, fadeScale);
         } else {
-          const exitScale = Math.min(1.0, Math.max(0.001, dist / 8.0));
-          this.dummy.scale.set(exitScale, exitScale, exitScale);
+          this.dummy.scale.set(1, 1, 1);
         }
 
         this.dummy.updateMatrix();

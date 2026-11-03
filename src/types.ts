@@ -4,7 +4,7 @@
 
 export interface TicketInfo {
   section: string;
-  sectionCode: 'VIP' | 'PLAT' | 'GRAD' | 'TRIB';
+  sectionCode: 'VIP' | 'PLAT' | 'GRAD' | 'TRIB' | 'PB_TRASERA';
   row: number;
   seat: number;
   eventName: string;
@@ -31,7 +31,8 @@ export type SimPhase =
   | 'EXITING_VENUE'
   | 'COMPLETED'
   | 'SPEED_LIMIT_FAIL'
-  | 'FLASHLIGHT_EXPELLED';
+  | 'FLASHLIGHT_EXPELLED'
+  | 'EVENT_MISSED';
 
 export interface SensorState {
   gyroscopeAllowed: boolean;
@@ -77,4 +78,7 @@ export interface AppState {
   customMediaUrl: string | null;
   audienceExitRemainingSeconds: number | null;
   isVenueEmpty: boolean;
+  hasExploredEmptyVenue: boolean;
+  blackoutCycle: number;
+  targetBlackouts: number;
 }

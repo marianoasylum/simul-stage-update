@@ -65,6 +65,9 @@ export default function App() {
     customMediaUrl: null,
     audienceExitRemainingSeconds: null,
     isVenueEmpty: false,
+    hasExploredEmptyVenue: false,
+    blackoutCycle: 0,
+    targetBlackouts: 2,
   });
 
   const [isNearSeat, setIsNearSeat] = useState(false);
@@ -111,7 +114,11 @@ export default function App() {
 
     rig.onExitReached = () => {
       if (phaseRef.current === 'EXITING_VENUE') {
-        setAppState((prev) => ({ ...prev, phase: 'COMPLETED' }));
+        setAppState((prev) => ({
+          ...prev,
+          phase: 'COMPLETED',
+          hasExploredEmptyVenue: prev.hasExploredEmptyVenue || prev.isVenueEmpty,
+        }));
       }
     };
 
@@ -391,11 +398,33 @@ export default function App() {
           prev.phase === 'SEATED_WAITING'
         ) {
           if (newTimeRemaining <= 1) {
-            // Trigger Concert automatically when time expires!
+            // Check if user is outside the venue when concert begins
+            if (!prev.isInsideVenue) {
+              soundEngine.stopConcertMusic();
+              soundEngine.playExpulsionBuzzer();
+              if (navigator.vibrate) navigator.vibrate([200, 100, 200, 100, 400]);
+              return {
+                ...prev,
+                phase: 'EVENT_MISSED',
+                timeRemainingSeconds: 0,
+                flashlightWarningSeconds: null,
+                blackoutRemainingSeconds: null,
+              };
+            }
+
+            // Trigger Concert automatically when time expires and user is inside!
+            const targets = Math.random() < 0.5 ? 2 : 3;
             soundEngine.startConcertMusic();
             venueSceneRef.current?.activateCustomMediaOnScreen();
             newPhase = 'CONCERT_PLAYING';
             newTimeRemaining = 0;
+            return {
+              ...prev,
+              phase: newPhase,
+              timeRemainingSeconds: 0,
+              blackoutCycle: 0,
+              targetBlackouts: targets,
+            };
           } else {
             newTimeRemaining -= 1;
           }
@@ -410,9 +439,11 @@ export default function App() {
           }
 
           if (newBlackoutSeconds <= 1) {
-            // Blackout ends -> CONCERT_FINALE! Lights turn back on & music restarts!
+            // Blackout ends -> Lights turn back on & music restarts!
             soundEngine.startConcertMusic();
-            newPhase = 'CONCERT_FINALE';
+            const nextCycle = prev.blackoutCycle + 1;
+            const isLast = nextCycle >= prev.targetBlackouts;
+            newPhase = isLast ? 'CONCERT_FINALE' : 'CONCERT_PLAYING';
             newBlackoutSeconds = null;
 
             // If user still has flashlight on when lights return: trigger immediate 5s expulsion countdown!
@@ -421,6 +452,14 @@ export default function App() {
               soundEngine.playWarningBeep(5);
               if (navigator.vibrate) navigator.vibrate([100, 50, 100]);
             }
+
+            return {
+              ...prev,
+              phase: newPhase,
+              blackoutCycle: nextCycle,
+              blackoutRemainingSeconds: null,
+              flashlightWarningSeconds: newWarningSeconds,
+            };
           } else {
             newBlackoutSeconds -= 1;
           }
@@ -429,11 +468,13 @@ export default function App() {
         // Countdown for audience exit (30-second duration)
         let newAudienceExitSeconds = prev.audienceExitRemainingSeconds;
         let newIsVenueEmpty = prev.isVenueEmpty;
+        let newHasExplored = prev.hasExploredEmptyVenue;
 
         if (prev.phase === 'EXITING_VENUE' && newAudienceExitSeconds !== null && newAudienceExitSeconds > 0) {
           if (newAudienceExitSeconds <= 1) {
             newAudienceExitSeconds = 0;
             newIsVenueEmpty = true;
+            newHasExplored = true;
             venueSceneRef.current?.setVenueEmpty(true);
             if (cameraRigRef.current) {
               cameraRigRef.current.allowSprintInVenue = true;
@@ -451,6 +492,7 @@ export default function App() {
           flashlightWarningSeconds: newWarningSeconds,
           audienceExitRemainingSeconds: newAudienceExitSeconds,
           isVenueEmpty: newIsVenueEmpty,
+          hasExploredEmptyVenue: newHasExplored,
         };
       });
     }, 1000);
@@ -463,16 +505,23 @@ export default function App() {
     let timeoutId: number;
 
     if (appState.phase === 'CONCERT_PLAYING') {
-      // After 28 seconds of initial music, trigger blackout with 16-second countdown!
+      // Blackout happens between 2 and 3 times during the concert at a randomized period of time
+      // with at least 5 seconds between one blackout and another:
+      // First blackout: 14 to 20 seconds of concert intro
+      // Subsequent blackouts: random between 5 and 11 seconds (always >= 5 seconds)
+      const minDelay = appState.blackoutCycle === 0 ? 14000 : 5000;
+      const randomExtra = Math.floor(Math.random() * 6000);
+      const delayMs = minDelay + randomExtra;
+
       timeoutId = window.setTimeout(() => {
         // Music stops when the lights go out!
         soundEngine.stopConcertMusic();
         setAppState((prev) => ({
           ...prev,
           phase: 'CONCERT_BLACKOUT',
-          blackoutRemainingSeconds: 16,
+          blackoutRemainingSeconds: 12, // 12-second blackout event
         }));
-      }, 28000);
+      }, delayMs);
     } else if (appState.phase === 'CONCERT_FINALE') {
       // Finale lasts 20 seconds, then crowd applause & 30s audience exit
       timeoutId = window.setTimeout(() => {
@@ -494,12 +543,24 @@ export default function App() {
     }
 
     return () => clearTimeout(timeoutId);
-  }, [appState.phase]);
+  }, [appState.phase, appState.blackoutCycle]);
 
   // --- 3. User Actions & Handlers ---
 
   const handleTicketConfirmed = (ticket: TicketInfo) => {
     venueSceneRef.current?.updateTargetSeatFromTicket(ticket);
+    if (cameraRigRef.current) {
+      // Spawn facing the vehicle on Calle Humboldt with the venue in front (yaw = 0, looking down -Z)
+      cameraRigRef.current.position.set(2.5, 1.65, 18.0);
+      cameraRigRef.current.yaw = 0;
+      cameraRigRef.current.pitch = 0;
+      cameraRigRef.current.verticalVelocity = 0;
+      cameraRigRef.current.isGrounded = true;
+      cameraRigRef.current.isSeated = false;
+      cameraRigRef.current.isInsideVenue = false;
+      cameraRigRef.current.camera.position.set(2.5, 1.65, 18.0);
+      cameraRigRef.current.camera.rotation.set(0, 0, 0, 'YXZ');
+    }
     setAppState((prev) => ({
       ...prev,
       ticket,
@@ -682,16 +743,22 @@ export default function App() {
   }, []);
 
   const handleStartShowNow = useCallback(() => {
+    // Only available when user is inside the venue / stage area
+    if (!appState.isInsideVenue) return;
     soundEngine.startConcertMusic();
     venueSceneRef.current?.activateCustomMediaOnScreen();
+    const targets = Math.random() < 0.5 ? 2 : 3;
     setAppState((prev) => ({
       ...prev,
       timeRemainingSeconds: 0,
       phase: 'CONCERT_PLAYING',
+      blackoutCycle: 0,
+      targetBlackouts: targets,
       flashlightWarningSeconds: null,
       blackoutRemainingSeconds: null,
+      hasExploredEmptyVenue: false,
     }));
-  }, []);
+  }, [appState.isInsideVenue]);
 
   const handleResetFromEntrance = useCallback(() => {
     cameraRigRef.current?.resetToEntrance();
@@ -709,6 +776,8 @@ export default function App() {
       blackoutRemainingSeconds: null,
       audienceExitRemainingSeconds: null,
       isVenueEmpty: false,
+      hasExploredEmptyVenue: false,
+      blackoutCycle: 0,
     }));
   }, []);
 
@@ -718,14 +787,17 @@ export default function App() {
     venueSceneRef.current?.setFlashlight(false);
     venueSceneRef.current?.setVenueEmpty(false);
     if (cameraRigRef.current) {
-      cameraRigRef.current.position.set(2.2, 1.65, 42.5);
-      cameraRigRef.current.yaw = Math.PI;
+      // Spawn facing the vehicle on Calle Humboldt with the venue in front (yaw = 0, looking down -Z)
+      cameraRigRef.current.position.set(2.5, 1.65, 18.0);
+      cameraRigRef.current.yaw = 0;
       cameraRigRef.current.pitch = 0;
       cameraRigRef.current.verticalVelocity = 0;
       cameraRigRef.current.isGrounded = true;
       cameraRigRef.current.isSeated = false;
       cameraRigRef.current.isInsideVenue = false;
       cameraRigRef.current.allowSprintInVenue = false;
+      cameraRigRef.current.camera.position.set(2.5, 1.65, 18.0);
+      cameraRigRef.current.camera.rotation.set(0, 0, 0, 'YXZ');
     }
     setAppState((prev) => ({
       ...prev,
@@ -738,6 +810,8 @@ export default function App() {
       blackoutRemainingSeconds: null,
       audienceExitRemainingSeconds: null,
       isVenueEmpty: false,
+      hasExploredEmptyVenue: false,
+      blackoutCycle: 0,
     }));
   }, []);
 
@@ -802,6 +876,7 @@ export default function App() {
       {appState.phase === 'COMPLETED' && (
         <ConcertEndModal
           ticket={appState.ticket}
+          hasExploredEmptyVenue={appState.hasExploredEmptyVenue || appState.isVenueEmpty}
           onRestart={handleResetComplete}
           onChangeTicket={() =>
             setAppState((prev) => ({

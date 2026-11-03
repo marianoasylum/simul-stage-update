@@ -8,11 +8,17 @@ import { Award, CheckCircle2, RotateCcw, Ticket, Sparkles } from 'lucide-react';
 
 interface Props {
   ticket: TicketInfo;
+  hasExploredEmptyVenue?: boolean;
   onRestart: () => void;
   onChangeTicket: () => void;
 }
 
-export const ConcertEndModal: React.FC<Props> = ({ ticket, onRestart, onChangeTicket }) => {
+export const ConcertEndModal: React.FC<Props> = ({
+  ticket,
+  hasExploredEmptyVenue = false,
+  onRestart,
+  onChangeTicket,
+}) => {
   return (
     <div className="fixed inset-0 z-50 flex items-center justify-center p-4 bg-slate-950/95 overflow-y-auto">
       <div className="w-full max-w-lg my-auto bg-slate-900 border border-emerald-500/40 rounded-2xl shadow-2xl p-6 sm:p-8 backdrop-blur-md text-white text-center">
@@ -23,14 +29,18 @@ export const ConcertEndModal: React.FC<Props> = ({ ticket, onRestart, onChangeTi
 
         <div className="inline-flex items-center gap-1.5 px-3 py-1 rounded-full bg-emerald-500/10 text-emerald-400 text-xs font-semibold mb-2">
           <Sparkles className="w-3.5 h-3.5" />
-          Simulación de Evento Concluida
+          {hasExploredEmptyVenue
+            ? 'Exploración de Escenario Concluida • Último Asistente'
+            : 'Simulación de Evento Concluida'}
         </div>
 
         <h2 className="text-2xl sm:text-3xl font-extrabold tracking-tight text-white mb-2">
-          ¡Experiencia Completada con Éxito!
+          {hasExploredEmptyVenue ? '¡Has explorado el escenario!' : '¡Experiencia Completada con Éxito!'}
         </h2>
         <p className="text-slate-400 text-xs sm:text-sm max-w-md mx-auto mb-6">
-          Has recorrido el recinto, localizado tu asiento con el boleto digital, disfrutado el concierto dinámico de luces y acompañado a la multitud hacia la salida segura.
+          {hasExploredEmptyVenue
+            ? 'Has recorrido y explorado libremente el escenario y las instalaciones tras la salida completa del público, siendo el último asistente en retirarse del recinto.'
+            : 'Has recorrido el recinto, localizado tu asiento con el boleto digital, disfrutado el concierto dinámico de luces y acompañado a la multitud hacia la salida segura.'}
         </p>
 
         {/* Recap Card */}
@@ -47,15 +57,27 @@ export const ConcertEndModal: React.FC<Props> = ({ ticket, onRestart, onChangeTi
           </div>
           <div className="flex items-center gap-2 text-emerald-400 pt-1">
             <CheckCircle2 className="w-4 h-4" />
-            <span>Límite de velocidad en recinto respetado</span>
+            <span>
+              {hasExploredEmptyVenue
+                ? 'Acceso exclusivo y recorrido libre por el escenario'
+                : 'Límite de velocidad en recinto respetado'}
+            </span>
           </div>
           <div className="flex items-center gap-2 text-emerald-400">
             <CheckCircle2 className="w-4 h-4" />
-            <span>Iluminación dinámica y sensores activos</span>
+            <span>
+              {hasExploredEmptyVenue
+                ? 'Carrera a máxima velocidad por el recinto vacío habilitada'
+                : 'Iluminación dinámica y sensores activos'}
+            </span>
           </div>
           <div className="flex items-center gap-2 text-emerald-400">
             <CheckCircle2 className="w-4 h-4" />
-            <span>Evacuación guiada con el público</span>
+            <span>
+              {hasExploredEmptyVenue
+                ? 'Salida final como último espectador tras el desalojo del público'
+                : 'Evacuación guiada con el público'}
+            </span>
           </div>
         </div>
 

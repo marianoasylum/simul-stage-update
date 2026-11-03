@@ -22,6 +22,7 @@ import {
   CheckCircle2,
   X,
   Sparkles,
+  CalendarX,
 } from 'lucide-react';
 import { AppState } from '../types';
 
@@ -391,6 +392,28 @@ export const HUDOverlay: React.FC<Props> = ({
             </div>
           </div>
         )}
+
+        {/* Event Missed Modal (User outside when concert started) */}
+        {appState.phase === 'EVENT_MISSED' && (
+          <div className="p-6 rounded-2xl bg-amber-950/95 border-2 border-amber-500 shadow-2xl text-center text-white backdrop-blur-xl">
+            <div className="w-14 h-14 rounded-full bg-amber-500/20 text-amber-400 flex items-center justify-center mx-auto mb-3">
+              <CalendarX className="w-8 h-8" />
+            </div>
+            <h3 className="text-xl font-extrabold text-amber-200">¡Te Has Perdido el Evento!</h3>
+            <p className="text-xs sm:text-sm text-amber-100/90 mt-2">
+              El concierto ha comenzado puntualmente y las puertas de acceso al recinto se han cerrado. No lograste ingresar al estadio a tiempo.
+            </p>
+            <div className="mt-5 space-y-2">
+              <button
+                type="button"
+                onClick={onResetComplete}
+                className="w-full py-2.5 px-4 rounded-xl bg-amber-500 hover:bg-amber-400 text-slate-950 font-bold text-sm shadow-md cursor-pointer transition-all"
+              >
+                Reiniciar desde los Autos
+              </button>
+            </div>
+          </div>
+        )}
       </div>
 
       {/* 4. COLLAPSIBLE BOTTOM ERGONOMIC DOCK */}
@@ -492,7 +515,7 @@ export const HUDOverlay: React.FC<Props> = ({
 
             {/* Right: Show controls */}
             <div className="flex items-center gap-2">
-              {!isConcertPhase && appState.phase !== 'EXITING_VENUE' && (
+              {!isConcertPhase && appState.phase !== 'EXITING_VENUE' && appState.isInsideVenue && (
                 <button
                   type="button"
                   onClick={onStartShowNow}

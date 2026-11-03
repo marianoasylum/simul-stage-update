@@ -22,7 +22,7 @@ export class CameraRig {
   // Position and kinematics
   public position: THREE.Vector3;
   public velocity: THREE.Vector3 = new THREE.Vector3();
-  public yaw = Math.PI; // Face arena at start (looking down -Z)
+  public yaw = 0; // Face forward toward vehicle and venue facade (looking down -Z)
   public pitch = 0;
 
   // Player state
@@ -63,8 +63,8 @@ export class CameraRig {
   constructor(scene: VenueScene) {
     this.scene = scene;
     this.camera = scene.camera;
-    // Initial position outside on Calle Humboldt facing the Movistar Arena facade
-    this.position = new THREE.Vector3(0.0, 1.65, 20.0);
+    // Initial position outside on Calle Humboldt facing the vehicle and Movistar Arena facade
+    this.position = new THREE.Vector3(2.5, 1.65, 18.0);
     this.camera.position.copy(this.position);
     this.camera.rotation.order = 'YXZ';
   }
@@ -306,11 +306,7 @@ export class CameraRig {
       if (absX >= 38.6 - r) return true;
       // Rear stage wall at Z = -86.5
       if (z <= -86.2 + r) return true;
-
-      // Soundboard / FOH mixing console tower at X = 0, Z = -38 (width 6.5m, depth 4.0m)
-      if (absX <= 3.25 + r && Math.abs(z - (-38.0)) <= 2.0 + r) {
-        return true;
-      }
+      // Note: Central block has been replaced by the open Planta Baja Trasera sector.
     }
 
     // 8. Outdoor Calle Humboldt Boundaries & Parked Vehicle Fleet Collisions
@@ -480,7 +476,7 @@ export class CameraRig {
 
   public resetToEntrance(): void {
     this.position.set(0, 1.65, 3.0);
-    this.yaw = Math.PI;
+    this.yaw = 0; // Look towards entrance doors (down -Z)
     this.pitch = 0;
     this.currentSpeed = 0;
     this.verticalVelocity = 0;

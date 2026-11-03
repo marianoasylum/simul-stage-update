@@ -25,16 +25,28 @@ export const SECTIONS = [
     doors: 'Puertas 1 - 2',
   },
   {
+    code: 'PB_TRASERA' as const,
+    name: 'Planta Baja Trasera',
+    desc: 'Sector en planta baja ubicado en el sector central posterior. Vista despejada a escenario y pantallas.',
+    price: '$120.000 ARS',
+    color: 'from-teal-500/20 to-cyan-500/20 border-teal-500/50 text-teal-300',
+    gate: 'Acceso Puertas 5 y 6 (Calle Humboldt)',
+    gateNumber: 5,
+    sectorAforo: 2800,
+    occupancyPercent: 86,
+    doors: 'Puertas 5 - 6',
+  },
+  {
     code: 'PLAT' as const,
     name: 'Platea Baja Central Preferencial',
     desc: 'Grada baja con visibilidad acústica óptima, elevación perfecta y perspectiva frontal a las pantallas LED.',
     price: '$130.000 ARS',
     color: 'from-blue-500/20 to-cyan-500/20 border-cyan-500/50 text-cyan-300',
-    gate: 'Acceso Puertas 3 a 6 (Calle Humboldt)',
-    gateNumber: 4,
+    gate: 'Acceso Puertas 3 y 4 (Calle Humboldt)',
+    gateNumber: 3,
     sectorAforo: 4500,
     occupancyPercent: 88,
-    doors: 'Puertas 3 - 6',
+    doors: 'Puertas 3 - 4',
   },
   {
     code: 'GRAD' as const,
@@ -65,7 +77,7 @@ export const SECTIONS = [
 export const TOTAL_VENUE_AFORO = 15000;
 
 export const TicketSelector: React.FC<Props> = ({ onTicketConfirmed }) => {
-  const [selectedSectionCode, setSelectedSectionCode] = useState<'VIP' | 'PLAT' | 'GRAD' | 'TRIB'>('VIP');
+  const [selectedSectionCode, setSelectedSectionCode] = useState<'VIP' | 'PLAT' | 'GRAD' | 'TRIB' | 'PB_TRASERA'>('VIP');
   const [row, setRow] = useState<number>(2);
   const [seat, setSeat] = useState<number>(8);
 
