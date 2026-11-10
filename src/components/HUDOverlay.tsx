@@ -253,7 +253,7 @@ export const HUDOverlay: React.FC<Props> = ({
                 title="Encender o apagar las luces del escenario y reflectores"
               >
                 <Sun className={`w-3.5 h-3.5 mb-0.5 ${appState.stageLightsOn ? 'text-amber-400 animate-pulse' : 'text-slate-500'}`} />
-                <span className="text-[9px] font-bold">Luces</span>
+                <span className="text-[9px] font-bold">Luz</span>
                 <span className="text-[7px] font-mono mt-0.5 uppercase">
                   {appState.stageLightsOn ? 'ON' : 'OFF'}
                 </span>
@@ -396,36 +396,6 @@ export const HUDOverlay: React.FC<Props> = ({
           </div>
         )}
 
-        {/* Empty Venue Notification: User is the last person, permitted to run freely! */}
-        {appState.phase === 'EXITING_VENUE' && appState.isVenueEmpty && (
-          <div className="w-full p-2.5 rounded-xl bg-gradient-to-r from-emerald-950/95 to-teal-950/95 border-2 border-emerald-400 text-emerald-100 shadow-xl backdrop-blur-md flex items-center justify-between gap-2 animate-pulse">
-            <div className="flex items-center gap-2 min-w-0">
-              <div className="p-1.5 rounded-lg bg-emerald-500/25 text-emerald-300 shrink-0">
-                <Footprints className="w-4 h-4 text-emerald-300" />
-              </div>
-              <div className="min-w-0">
-                <h4 className="font-extrabold text-[11px] text-white flex items-center gap-1">
-                  <span>¡Recinto Vacío!</span>
-                  <span className="text-[9px] font-semibold px-1 py-0.2 rounded bg-emerald-400/30 text-emerald-200">
-                    Último Asistente
-                  </span>
-                </h4>
-                <p className="text-[9px] text-emerald-200/95 truncate">
-                  ¡Puedes correr para explorar el escenario!
-                </p>
-              </div>
-            </div>
-            {appState.isSeated && (
-              <button
-                type="button"
-                onClick={onStandUp}
-                className="py-1 px-2.5 rounded-lg bg-emerald-400 hover:bg-emerald-300 text-slate-950 font-bold text-[11px] shadow shrink-0 cursor-pointer"
-              >
-                Levantarse
-              </button>
-            )}
-          </div>
-        )}
       </div>
 
       {/* 3. CENTER MODALS */}

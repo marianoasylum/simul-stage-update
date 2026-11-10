@@ -1195,7 +1195,7 @@ export class VenueScene {
     if (this.switchLightLedMat) {
       this.switchLightLedMat.color.setHex(on ? 0x00ff88 : 0xef4444);
       this.switchLightLedMat.emissive.setHex(on ? 0x00e676 : 0xb91c1c);
-      this.switchLightLedMat.emissiveIntensity = on ? 2.2 : 0.8;
+      this.switchLightLedMat.emissiveIntensity = on ? 2.2 : 1.4;
     }
   }
 
@@ -2414,12 +2414,12 @@ export class VenueScene {
       }
     }
 
-    // Stage Lights: extinguished completely when venue is empty OR when manually switched off OR blackout
-    const stageLightsActive = !isBlackout && this.stageLightsManualOn && !this.isVenueEmpty;
+    // Stage Lights: active when lights switch is on and not during blackout
+    const stageLightsActive = !isBlackout && this.stageLightsManualOn;
 
     // Stage Wash Lights & Foyer Lights
     this.stageWashLights.forEach((wash) => {
-      wash.intensity = stageLightsActive ? (isConcertPlaying ? 2.2 + audioBass * 1.5 : 0.8) : 0.0;
+      wash.intensity = stageLightsActive ? (isConcertPlaying ? 2.2 + audioBass * 1.5 : 1.8) : 0.0;
     });
     this.foyerLights.forEach((fl) => {
       fl.intensity = isBlackout ? 0.0 : 1.8;
@@ -2427,11 +2427,8 @@ export class VenueScene {
 
     // 3. Architectural Internal Lighting Dynamics
     this.houseLights.forEach((hl) => {
-      if (isBlackout) {
+      if (isBlackout || (this.isVenueEmpty && !this.stageLightsManualOn)) {
         hl.intensity = 0.0;
-      } else if (this.isVenueEmpty && !this.stageLightsManualOn) {
-        // Atmospheric dimmed lighting when venue empty and stage lights switched off
-        hl.intensity = 0.25;
       } else if (isConcertPlaying) {
         hl.intensity = 0.75 + audioBass * 0.35;
       } else {
@@ -2441,10 +2438,8 @@ export class VenueScene {
 
     // Tiered Seating Raking Lights & Step LED Glow
     this.tieredRakingLights.forEach((spot) => {
-      if (isBlackout) {
+      if (isBlackout || (this.isVenueEmpty && !this.stageLightsManualOn)) {
         spot.intensity = 0.0;
-      } else if (this.isVenueEmpty && !this.stageLightsManualOn) {
-        spot.intensity = 0.3;
       } else if (isConcertPlaying) {
         spot.intensity = 0.9 + audioBass * 0.5;
       } else {
@@ -2453,10 +2448,8 @@ export class VenueScene {
     });
 
     this.stepLedMaterials.forEach((mat) => {
-      if (isBlackout) {
+      if (isBlackout || (this.isVenueEmpty && !this.stageLightsManualOn)) {
         mat.emissiveIntensity = 0.0;
-      } else if (this.isVenueEmpty && !this.stageLightsManualOn) {
-        mat.emissiveIntensity = 0.6;
       } else if (isConcertPlaying) {
         mat.emissiveIntensity = 1.6 + audioTreble * 0.8;
       } else {

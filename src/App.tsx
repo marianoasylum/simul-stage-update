@@ -94,6 +94,12 @@ export default function App() {
   const sprintRef = useRef(false);
   sprintRef.current = appState.sprintEnabled;
 
+  const isVenueEmptyRef = useRef(false);
+  isVenueEmptyRef.current = appState.isVenueEmpty;
+
+  const stageLightsOnRef = useRef(true);
+  stageLightsOnRef.current = appState.stageLightsOn;
+
   // Real-World GPS Walking Refs
   const gpsWatchIdRef = useRef<number | null>(null);
   const lastGpsCoordsRef = useRef<{ lat: number; lng: number } | null>(null);
@@ -255,7 +261,9 @@ export default function App() {
         currentPhase === 'CONCERT_PLAYING' ||
         currentPhase === 'CONCERT_BLACKOUT' ||
         currentPhase === 'CONCERT_FINALE';
-      const isBlackout = currentPhase === 'CONCERT_BLACKOUT';
+      const isBlackout =
+        currentPhase === 'CONCERT_BLACKOUT' ||
+        (isVenueEmptyRef.current && !stageLightsOnRef.current);
       const isExiting = currentPhase === 'EXITING_VENUE' || currentPhase === 'COMPLETED';
 
       // Assemble locomotion inputs
@@ -490,7 +498,9 @@ export default function App() {
             newIsVenueEmpty = true;
             newHasExplored = true;
             venueSceneRef.current?.setVenueEmpty(true);
-            venueSceneRef.current?.setStageLights(false); // Turn off all stage lights when venue is empty
+            venueSceneRef.current?.setStageLights(false); // Turn off all stage lights when venue is empty -> causes apagón
+            soundEngine.playPowerDown();
+            if (navigator.vibrate) navigator.vibrate([150, 60, 200]);
             if (cameraRigRef.current) {
               cameraRigRef.current.allowSprintInVenue = true;
             }

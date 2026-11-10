@@ -223,6 +223,43 @@ class SoundEngine {
     osc.stop(now + 0.055);
   }
 
+  public playPowerDown(): void {
+    if (!this.ctx || !this.sfxGain) return;
+    const now = this.ctx.currentTime;
+
+    // Sub-bass power drop (heavy electric breaker power-cut)
+    const osc = this.ctx.createOscillator();
+    const gain = this.ctx.createGain();
+
+    osc.type = 'sawtooth';
+    osc.frequency.setValueAtTime(120, now);
+    osc.frequency.exponentialRampToValueAtTime(20, now + 0.55);
+
+    gain.gain.setValueAtTime(0.5, now);
+    gain.gain.exponentialRampToValueAtTime(0.001, now + 0.6);
+
+    osc.connect(gain);
+    gain.connect(this.sfxGain);
+
+    osc.start(now);
+    osc.stop(now + 0.65);
+
+    // Initial electrical clunk
+    const clunk = this.ctx.createOscillator();
+    const clunkGain = this.ctx.createGain();
+    clunk.type = 'triangle';
+    clunk.frequency.setValueAtTime(220, now);
+    clunk.frequency.exponentialRampToValueAtTime(40, now + 0.08);
+
+    clunkGain.gain.setValueAtTime(0.65, now);
+    clunkGain.gain.exponentialRampToValueAtTime(0.01, now + 0.09);
+
+    clunk.connect(clunkGain);
+    clunkGain.connect(this.sfxGain);
+    clunk.start(now);
+    clunk.stop(now + 0.1);
+  }
+
   public playJump(): void {
     if (!this.ctx || !this.sfxGain) return;
     const now = this.ctx.currentTime;
